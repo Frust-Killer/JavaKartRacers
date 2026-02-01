@@ -17,7 +17,7 @@ public class ServerHandler implements Runnable {
 
     // connection components
     private Socket clientSocket = null;
-    private DataOutputStream outputStreamToServer = null;
+    private PrintWriter outputStreamToServer;
     private BufferedReader inputStreamFromServer = null;
     private String messageFromServer;
     private final String serverHostAddress;
@@ -39,6 +39,9 @@ public class ServerHandler implements Runnable {
     private boolean connectionActive = false;
     private boolean isGameActive = false;
     private boolean isServerFull = false;
+    private boolean loginResult = false;
+    private boolean authResponseReceived = false;
+    private GameClient authClient;
 
     // Property access methods.
     public int getPlayerNumber()                    { return playerNumber; }
@@ -94,53 +97,47 @@ public class ServerHandler implements Runnable {
     }
 
     // Constructor
-    public ServerHandler(String serverHostAddress) {
+    public ServerHandler(String serverHostAddress, GameClient authClient) {
         this.serverHostAddress = serverHostAddress;
+        this.authClient = authClient;
     }
 
     // Handler thread loops here.
+
     @Override
     public void run() {
-        openConnection();
+        openConnection(); // Configure les flux et appelle requestLobbyData()
 
         if (isConnectionSetupValid()) {
-            initiateCommunication();
+            connectionActive = true;
 
-            // Collect information to see if the player is allowed to join.
-            getNumberOfPlayers();
-            getServerStage();
-
-            if (!isServerFull && !isGameActive) {
-                getPlayerProperties();
-
-                do handleServerCommand();
-                while (connectionActive);
+            // On lance directement la boucle d'écoute. 
+            // Les réponses à REQUEST_CONN_CHECK, PLAYER_COUNT, etc. 
+            // seront traitées par le switch dans respondToServerCommands()
+            try {
+                while (connectionActive) {
+                    handleServerCommand();
+                }
+            } catch (Exception e) {
+                System.err.println("Error in handler loop: " + e.getMessage());
+            } finally {
+                closeConnection();
             }
-            else {
-                displayErrorMessage("Server full: " + isServerFull + " - Game active: " + isGameActive);
-                terminateInvalidConnection();
-            }
-
-            closeConnection();
         }
-
         ServerManager.disconnectFromServer();
     }
-
+    
     private void openConnection() {
-        try {
-            clientSocket = new Socket(serverHostAddress, SERVER_PORT);
-            outputStreamToServer = new DataOutputStream(clientSocket.getOutputStream());
-            inputStreamFromServer = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-        }
-        catch (UnknownHostException e) {
-            displayErrorMessage("Could not find " + serverHostAddress);
-        }
-        catch (IOException e) {
-            displayErrorMessage("Could not connect to " + serverHostAddress);
+        // Au lieu de faire "new Socket()", on récupère celle du login
+        this.clientSocket = authClient.getSocket();
+        this.outputStreamToServer = authClient.getWriter();
+        this.inputStreamFromServer = authClient.getReader();
+        
+        if (isConnectionSetupValid()) {
+            connectionActive = true;
+          
         }
     }
-
     private void handleServerCommand() {
         messageFromServer = listenForCommand();
 
@@ -166,8 +163,11 @@ public class ServerHandler implements Runnable {
     }
 
     private void displayErrorMessage(String errorMessage) {
-        if (serverHostAddress.equals("localhost")) joinDisplay.setErrorLocalLabel(errorMessage);
-        else joinDisplay.setErrorOnlineLabel(errorMessage);
+        System.err.println("Network Error: " + errorMessage); // Toujours logger en console
+        if (joinDisplay != null) {
+            if (serverHostAddress.equals("localhost")) joinDisplay.setErrorLocalLabel(errorMessage);
+            else joinDisplay.setErrorOnlineLabel(errorMessage);
+        }
     }
 
     private boolean isConnectionSetupValid() {
@@ -235,6 +235,8 @@ public class ServerHandler implements Runnable {
         float positionY = kart.getPosition().y;
         sendCommand("SEND_KART_DATA " + kartNumber + " " + rotation + " " + speed + " " + positionX + " " + positionY);
     }
+    
+    
 
     public void clearLocalLobby() {
         chosenKarts.clear();
@@ -386,16 +388,22 @@ public class ServerHandler implements Runnable {
     // Close the connection if an error occurred in communication.
     private void handleUnexpectedServerTermination() {
         connectionActive = false;
-        if (isGameActive) gameDisplay.sendPlayerToMenu();
-        else lobbyDisplay.sendPlayerToMenu();
         isGameActive = false;
-}
+        
+        // Ajout de vérifications de sécurité (Null Checks)
+        if (gameDisplay != null) {
+            gameDisplay.sendPlayerToMenu();
+        } else if (lobbyDisplay != null) {
+            lobbyDisplay.sendPlayerToMenu();
+        } else if (joinDisplay != null) {
+            // Si on est encore sur l'écran de connexion
+            joinDisplay.setErrorLocalLabel("Connection lost to server.");
+        }
+    }
 
     private synchronized void sendCommand(String command) {
-        try {
-            outputStreamToServer.writeBytes(command + "\n");
-        } catch (IOException e) {
-            handleUnexpectedServerTermination();
+        if (outputStreamToServer != null) {
+            outputStreamToServer.println(command); // .println ajoute le \n automatiquement
         }
     }
 
@@ -406,5 +414,20 @@ public class ServerHandler implements Runnable {
             handleUnexpectedServerTermination();
             return null;
         }
+    }
+    
+
+    // Modifie aussi requestLobbyData pour garantir l'ordre
+    public void requestLobbyData() {
+        // 1. Initialiser le lobby localement
+        if (joinDisplay != null) {
+            joinDisplay.createLocalLobby();
+        }
+        
+        // 2. Envoyer les commandes d'initialisation dans l'ordre
+        sendCommand("REQUEST_CONN_CHECK");
+        sendCommand("REQUEST_PLAYER_COUNT");
+        sendCommand("REQUEST_SERVER_STAGE");
+        sendCommand("REQUEST_PL_LOBBY_DATA");
     }
 }

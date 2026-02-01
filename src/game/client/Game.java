@@ -34,6 +34,7 @@ public class Game {
     private String gameEndReason;
     private final Timer gameTimer;
     private int gameTimeInSecondsTotal;
+    
 
     // Property access methods.
     public Racetrack getRacetrack()         { return racetrack; }
@@ -69,6 +70,8 @@ public class Game {
         opponents = options.getOpponents();
         mainPlayer = options.getMainPlayer();
     }
+    
+   
 
     public void startGameTimer() {
         gameTimer.start();

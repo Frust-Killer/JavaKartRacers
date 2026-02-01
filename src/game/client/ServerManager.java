@@ -18,19 +18,27 @@ public class ServerManager {
     }
 
     // Delegate the connection to a thread to handle.
-    public static boolean connectToServer(String serverHostAddress) {
+    public static boolean connectToServer(String host, GameClient existingClient) {
         if (handler == null) {
-            handler = new ServerHandler(serverHostAddress);
+            // On passe l'objet GameClient au handler pour qu'il récupère la socket
+            handler = new ServerHandler(host, existingClient);
             new Thread(handler).start();
             return true;
         }
-        // If there is a dormant thread and handler, close them.
-        handler.disconnectPlayer();
-        handler = null;
-        return false;
+        return true; 
     }
 
     public static void disconnectFromServer() {
         handler = null;
+    }
+ // Dans ServerManager.java
+    public static boolean connectToServer(String host) {
+        // Si vous n'avez pas d'existingClient ici, passez null ou créez-en un nouveau
+        if (handler == null) {
+            handler = new ServerHandler(host, new GameClient()); 
+            new Thread(handler).start();
+            return true;
+        }
+        return true; 
     }
 }

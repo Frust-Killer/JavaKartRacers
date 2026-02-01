@@ -5,13 +5,21 @@ package game.client;
  */
 public class Main {
 
-    // Program-related information.
-    public static final String VERSION      = "1.0.0";
-    public static final String STUDENT_ID   = "1602819";
-    public static final String GAME_TITLE   = "Pixel Kart Racers";
+    public static final String VERSION      = "Version 2.0";
+    public static final String STUDENT_ID   = "Developpers: FRU, FAVOUR, HAPPI, KAMPETE, KIMBI";
+    public static final String TEACHER      = "Superviseur: Dr. NZEBOP";
+    public static final String GAME_TITLE   = "Java Kart Racers";
+    
+    // AJOUT : On stocke l'instance du client réseau ici
+    private static GameClient gameClient;
 
     public static void main(String[] args) {
+        gameClient = new GameClient(); // Initialisation du réseau
         AudioManager.loadAudioFiles();
         new Window();
+    }
+    
+    public static GameClient getGameClient() {
+        return gameClient;
     }
 }

@@ -117,8 +117,9 @@ public class GameJoinDisplay implements Display {
     }
 
     public void createLocalLobby() {
-        lobby = new GameLobbyDisplay();
-        ServerManager.getHandler().setLobbyDisplay(lobby);
+        // IMPORTANT : On instancie l'objet AVANT de l'assigner au handler
+        this.lobby = new GameLobbyDisplay();
+        ServerManager.getHandler().setLobbyDisplay(this.lobby);
     }
 
     public void sendPlayerToLobby() {
@@ -133,39 +134,49 @@ public class GameJoinDisplay implements Display {
         resetErrorMessage(errorLocalLabel);
         joinLocalDisabled = true;
 
-        boolean connectionSuccessful = ServerManager.connectToServer("localhost");
-
-        if (connectionSuccessful) {
+        // IMPORTANT : On n'appelle plus ServerManager.connectToServer() 
+        // car le GameClient est déjà connecté depuis le Login !
+        
+        ServerHandler handler = ServerManager.getHandler();
+        if (handler != null) {
+            handler.setJoinDisplay(this);
+            handler.requestLobbyData(); // Appel de la nouvelle méthode
+        } else {
+            // Si jamais le handler est null, on tente de reconnecter (sécurité)
+            ServerManager.connectToServer("localhost");
             ServerManager.getHandler().setJoinDisplay(this);
         }
-        else {
-            joinLocalDisabled = false;
-        }
     }
-
+    
     private void joinServerOnline() {
         resetErrorMessage(errorOnlineLabel);
         joinOnlineDisabled = true;
 
-        try {
-            String userInput = joinOnlineServerInput.getText();
-            String serverAddress = InetAddress.getByName(userInput).getHostAddress();
+        // Récupérer le handler actuel (celui du Login)
+        ServerHandler handler = ServerManager.getHandler();
 
-            boolean connectionSuccessful = ServerManager.connectToServer(serverAddress);
+        if (handler != null) {
+            // On est déjà connecté ! On définit juste l'affichage actuel et on demande le lobby
+            handler.setJoinDisplay(this);
+            handler.requestLobbyData();
+        } else {
+            // Pas de connexion préalable (le joueur n'est pas passé par le login)
+            try {
+                String userInput = joinOnlineServerInput.getText();
+                String serverAddress = InetAddress.getByName(userInput).getHostAddress();
 
-            if (connectionSuccessful) {
-                ServerManager.getHandler().setJoinDisplay(this);
-            }
-            else {
+                if (ServerManager.connectToServer(serverAddress)) {
+                    ServerManager.getHandler().setJoinDisplay(this);
+                    // Le thread run() de ServerHandler s'occupera du reste
+                } else {
+                    joinOnlineDisabled = false;
+                }
+            } catch (UnknownHostException e) {
+                errorOnlineLabel.setText("Could not resolve address");
                 joinOnlineDisabled = false;
             }
         }
-        catch (UnknownHostException e) {
-            errorOnlineLabel.setText("Could not resolve address");
-            joinOnlineDisabled = false;
-        }
     }
-
     private void resetErrorMessage(JLabel errorLabel) {
         errorLabel.setText("");
     }

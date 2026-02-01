@@ -2,6 +2,7 @@ package game.server;
 
 import java.io.*;
 import java.net.Socket;
+import java.io.PrintWriter;
 
 /**
  * The {@code ClientHandler} class sends requests/data to the client
@@ -10,18 +11,20 @@ import java.net.Socket;
 public class ClientHandler implements Runnable {
 
     // Object properties.
-    private final Socket server;
-    private BufferedReader inputStreamFromClient;
-    private DataOutputStream outputStreamToClient;
+    private final Socket server;;
     private String messageFromClient;
     private int playerNumber;
     private boolean connectionActive = false;
-
+    private BufferedReader inputStream;
+    private PrintWriter outputStream;
+    private String authenticatedUsername; // Pour stocker le nom après le login
     // Property access methods.
     public int getPlayerNumber() { return playerNumber; }
 
     // Constructor.
-    public ClientHandler(Socket server) { this.server = server; }
+    public ClientHandler(Socket server) { 
+    	this.server = server; 
+    }
 
     public void updateOpponentKartChoice(int opponentNumber, int kartChoice) {
         sendCommand("UPDATE_OP_KART_CHOICE " + opponentNumber + " " + kartChoice);
@@ -84,47 +87,106 @@ public class ClientHandler implements Runnable {
     }
 
     // Handler thread loops here.
+ // Dans ClientHandler.java (Serveur)
     public void run() {
-        openConnection();
-
-        do handleClientCommands();
-        while (connectionActive);
-
-        closeConnection();
-    }
-
-    private void openConnection() {
         try {
-            inputStreamFromClient = new BufferedReader(new InputStreamReader(server.getInputStream()));
-            outputStreamToClient = new DataOutputStream(server.getOutputStream());
-        }
-        catch (IOException e) {
-            System.err.println(e.getMessage());
+            inputStream = new BufferedReader(new InputStreamReader(server.getInputStream()));
+            outputStream = new PrintWriter(server.getOutputStream(), true);
+
+            System.out.println("[Server] New client connected from " + server.getRemoteSocketAddress());
+
+            String line;
+            while ((line = inputStream.readLine()) != null) {
+                System.out.println("[Server] Received from client: " + line);
+
+                // Robust parse: split into at most 3 parts to allow spaces in password
+                String[] data = line.split(" ", 3);
+                String command = data.length > 0 ? data[0].trim() : null;
+                String user = data.length > 1 ? data[1].trim() : null;
+                String pass = data.length > 2 ? data[2].trim() : null;
+
+                System.out.println("[Server] parsed -> command='" + command + "' user='" + user + "' (len=" + (user==null?0:user.length()) + ") pass='" + pass + "' (len=" + (pass==null?0:pass.length()) + ")");
+
+                if ("LOGIN_REQUEST".equals(command)) {
+                    if (user == null || pass == null) {
+                        sendCommand("LOGIN_FAILURE");
+                        System.out.println("[Server] LOGIN_REQUEST missing user/pass");
+                        continue;
+                    }
+                    boolean isValid = DatabaseManager.authenticate(user, pass);
+                    if (isValid) {
+                        this.authenticatedUsername = user;
+                        this.connectionActive = true;
+                        sendCommand("LOGIN_SUCCESS");
+                        System.out.println("[Server] User authenticated: " + this.authenticatedUsername);
+                        // On ne fait PLUS createPlayerLobbyData() ici !
+                    } else {
+                        sendCommand("LOGIN_FAILURE");
+                        System.out.println("[Server] Authentication failed for user: " + user);
+                    }
+                } else if ("REGISTER_REQUEST".equals(command)) {
+                    // Expect: REGISTER_REQUEST username password
+                    if (user == null || pass == null) {
+                        sendCommand("REGISTER_FAILURE");
+                        System.out.println("[Server] REGISTER_REQUEST missing user/pass");
+                        continue;
+                    }
+                    boolean created = DatabaseManager.registerPlayer(user, pass);
+                    if (created) {
+                        sendCommand("REGISTER_SUCCESS");
+                        System.out.println("[Server] New user registered: " + user);
+                    } else {
+                        sendCommand("REGISTER_FAILURE");
+                        System.out.println("[Server] Registration failed for user: " + user);
+                    }
+                } else {
+                    processCommand(line);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("[Server] Connection error: " + e.getMessage());
+            e.printStackTrace();
         }
     }
+    
+    
+    private void processCommand(String message) {
+        String[] messageData = message.split(" ");
+        String command = messageData[0];
 
-    private void handleClientCommands() {
-        messageFromClient = listenForCommand();
-
-        if (clientCommandReceived()) {
-            try {
-                respondToClientCommands();
-            }
-            catch (IllegalStateException e) {
-                System.err.println(e.getMessage());
-            }
+        switch (command) {
+            case "REQUEST_CONN_CHECK"     -> sendCommand("RESPOND_CONN_CHECK");
+            case "REQUEST_PLAYER_COUNT"    -> getPlayerSize();
+            case "REQUEST_SERVER_STAGE"    -> getServerStage();
+            case "REQUEST_PL_LOBBY_DATA"   -> createPlayerLobbyData();
+            case "PLAYER_READY"            -> setPlayerReady(true);
+            case "PLAYER_UNREADY"          -> setPlayerReady(false);
+            case "UPDATE_OWN_KART_OPTION"  -> updateOwnKartChoice(messageData);
+            case "REQUEST_KART_CHOICE"     -> sendKartChoice(messageData); // AJOUTÉ
+            case "UPDATE_MAP_CHOICE"       -> updateChosenMap(messageData);
+            case "SEND_KART_DATA"          -> processKartData(messageData);
+            case "END_CONNECTION"          -> endClientConnection();
+            case "END_GAME"                -> GameManager.endGame();
+            case "RACE_WON"                -> handleRaceWon(); // Appel d'une méthode dédiée
+        }
+    }
+    
+    
+    private void handleRaceWon() {
+        // Notify other players about the winner
+        GameManager.sendRaceWinnerToAllPlayers(this);
+        // Persist the win in the database if user authenticated
+        if (this.authenticatedUsername != null) {
+            DatabaseManager.recordWin(this.authenticatedUsername);
+            System.out.println("Victoire SQL : " + this.authenticatedUsername);
         }
     }
 
     private void closeConnection() {
         try {
-            outputStreamToClient.close();
-            inputStreamFromClient.close();
-            server.close();
-        }
-        catch (IOException e) {
-            System.err.println(e.getMessage());
-        }
+            connectionActive = false;
+            if (server != null) server.close();
+        } catch (IOException e) { e.printStackTrace(); }
     }
 
     private boolean clientCommandReceived() {
@@ -138,12 +200,12 @@ public class ClientHandler implements Runnable {
 
     private void getPlayerSize() {
         int playersJoined = LobbyManager.getPlayersInLobby().size();
-        sendCommand("RESPOND_PLAYER_COUNT " + playersJoined);
+        sendCommand("RESPOND_PLAYER_COUNT " + LobbyManager.getPlayersInLobby().size());
     }
 
     private void getServerStage() {
         boolean isGameActive = GameManager.isGameActive();
-        sendCommand("RESPOND_SERVER_STAGE " + isGameActive);
+        sendCommand("RESPOND_SERVER_STAGE " + GameManager.isGameActive());
     }
 
     private void createPlayerLobbyData() {
@@ -163,13 +225,12 @@ public class ClientHandler implements Runnable {
         retrieveAllConnectedPlayers();
         retrieveAllKartChoices();
         retrieveAllReadyStates();
-
         sendCommand("RESPOND_PL_LOBBY_DATA " + playerNumber + " " + kartChoice + " " + mapChoice);
     }
 
     private void setPlayerReady(boolean state) {
         LobbyManager.setReadyState(playerNumber, state);
-        if (!GameManager.isGameActive()) ClientManager.sendReadyStateToPlayers(this);
+        ClientManager.sendReadyStateToPlayers(this);
     }
 
     private void endClientConnectionInvalid() {
@@ -245,38 +306,41 @@ public class ClientHandler implements Runnable {
         String command = messageData[0];
 
         switch (command) {
-            case "REQUEST_CONN_CHECK"           -> setConnectionActive();
-            case "REQUEST_PLAYER_COUNT"         -> getPlayerSize();
-            case "REQUEST_SERVER_STAGE"         -> getServerStage();
-            case "REQUEST_PL_LOBBY_DATA"        -> createPlayerLobbyData();
-            case "PLAYER_READY"                 -> setPlayerReady(true);
-            case "PLAYER_UNREADY"               -> setPlayerReady(false);
-            case "END_CONNECTION"               -> endClientConnection();
-            case "END_CONN_INVALID"             -> endClientConnectionInvalid();
-            case "UPDATE_OWN_KART_OPTION"       -> updateOwnKartChoice(messageData);
-            case "REQUEST_KART_CHOICE"          -> sendKartChoice( messageData);
-            case "UPDATE_MAP_CHOICE"            -> updateChosenMap(messageData);
-            case "SEND_KART_DATA"               -> processKartData(messageData);
-            case "END_GAME"                     -> GameManager.endGame();
-            case "RACE_WON"                     -> GameManager.sendRaceWinnerToAllPlayers(this);
-            default -> throw new IllegalStateException("Unrecognised client command: " + command);
+            case "REQUEST_CONN_CHECK"   -> setConnectionActive();
+            case "REQUEST_PLAYER_COUNT"  -> getPlayerSize();
+            case "REQUEST_SERVER_STAGE"  -> getServerStage();
+            case "REQUEST_PL_LOBBY_DATA" -> createPlayerLobbyData();
+            case "PLAYER_READY"          -> setPlayerReady(true);
+            case "PLAYER_UNREADY"        -> setPlayerReady(false);
+            case "END_CONNECTION"        -> endClientConnection();
+            case "UPDATE_OWN_KART_OPTION" -> updateOwnKartChoice(messageData);
+            case "REQUEST_KART_CHOICE"    -> sendKartChoice(messageData);
+            case "UPDATE_MAP_CHOICE"     -> updateChosenMap(messageData);
+            case "SEND_KART_DATA"        -> processKartData(messageData);
+            case "END_GAME"              -> GameManager.endGame();
+            case "RACE_WON" -> {
+                // Notifier les autres
+                GameManager.sendRaceWinnerToAllPlayers(this);
+                // PERSISTANCE : Enregistre la victoire dans MySQL
+                if (this.authenticatedUsername != null) {
+                    DatabaseManager.recordWin(this.authenticatedUsername);
+                    System.out.println("Victoire SQL : " + this.authenticatedUsername);
+                }
+            }
+            default -> System.err.println("Commande inconnue: " + command);
         }
     }
 
     private synchronized void sendCommand(String command) {
-        try {
-            outputStreamToClient.writeBytes(command + "\n");
-        }
-        catch (IOException e) {
-            endServerConnection();
+        if (outputStream != null) {
+            outputStream.println(command);
         }
     }
 
     private String listenForCommand() {
         try {
-            return inputStreamFromClient.readLine();
-        }
-        catch (IOException e) {
+            return inputStream.readLine(); // Très important : readLine() et non readUTF()
+        } catch (IOException e) {
             endServerConnection();
             return null;
         }
