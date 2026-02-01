@@ -18,6 +18,7 @@ public class ClientHandler implements Runnable {
     private BufferedReader inputStream;
     private PrintWriter outputStream;
     private String authenticatedUsername; // Pour stocker le nom après le login
+    public String getAuthenticatedUsername() { return authenticatedUsername; }
     // Property access methods.
     public int getPlayerNumber() { return playerNumber; }
 
@@ -58,8 +59,9 @@ public class ClientHandler implements Runnable {
         sendCommand("REQUEST_START_GAME");
     }
 
-    public void raceLost(int winnerNumber) {
-        sendCommand("RACE_LOST " + winnerNumber);
+    public void raceLost(int winnerNumber, String winnerNameEncoded) {
+        // send encoded name so client can decode and display the winner's username
+        sendCommand("RACE_LOST " + winnerNumber + " " + winnerNameEncoded);
     }
 
     public void retrieveAllConnectedPlayers() {
@@ -225,7 +227,10 @@ public class ClientHandler implements Runnable {
         retrieveAllConnectedPlayers();
         retrieveAllKartChoices();
         retrieveAllReadyStates();
-        sendCommand("RESPOND_PL_LOBBY_DATA " + playerNumber + " " + kartChoice + " " + mapChoice);
+        // Include authenticated username and wins if available
+        String username = (authenticatedUsername == null) ? "" : authenticatedUsername.replaceAll(" ", "_");
+        int wins = (authenticatedUsername == null) ? 0 : DatabaseManager.getPlayerWins(authenticatedUsername);
+        sendCommand("RESPOND_PL_LOBBY_DATA " + playerNumber + " " + kartChoice + " " + mapChoice + " " + username + " " + wins);
     }
 
     private void setPlayerReady(boolean state) {

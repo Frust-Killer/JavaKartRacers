@@ -117,6 +117,28 @@ public class DatabaseManager {
         }
     }
 
+    // Get the player's total wins
+    public static int getPlayerWins(String username) {
+        username = username == null ? null : username.trim();
+        String sql = "SELECT total_wins FROM players WHERE username = ?";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASS);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                int wins = rs.getInt(1);
+                System.out.println("[DB] getPlayerWins(" + username + ") => " + wins);
+                return wins;
+            }
+            System.out.println("[DB] getPlayerWins(" + username + ") => not found");
+            return 0;
+        } catch (SQLException e) {
+            System.err.println("[DB] getPlayerWins failed: " + e.getMessage());
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
     // Debug helper: dump players table to console
     public static void debugDumpPlayers() {
         String sql = "SELECT id, username, password, total_wins FROM players";

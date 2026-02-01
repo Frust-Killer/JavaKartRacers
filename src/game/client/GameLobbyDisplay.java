@@ -60,6 +60,8 @@ public class GameLobbyDisplay implements Display {
     private int selectedMap;
     private boolean isBadWeather;
     private boolean isPlayerReady;
+    private String localPlayerName = "";
+    private int localPlayerWins = 0;
 
     private final ServerHandler connection = ServerManager.getHandler();
 
@@ -144,6 +146,12 @@ public class GameLobbyDisplay implements Display {
         drawPlayerKartChoices(g);
         drawPlayerLabels(g);
         drawPlayerReadyStatus(g);
+
+        // Draw local player info (name and wins) at top-right
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Arial", Font.BOLD, 14));
+        g.drawString("Player: " + localPlayerName, 570, 40);
+        g.drawString("Wins: " + localPlayerWins, 570, 60);
     }
 
     public void updateOpponentKartChoice(int opponentNumber, int kartChoice) {
@@ -338,5 +346,11 @@ public class GameLobbyDisplay implements Display {
     @Override
     public void keyHandler(int keyCode, boolean keyActivated) {
         // No keys used on this display.
+    }
+
+    public void setLocalPlayerInfo(String username, int wins) {
+        if (username == null) username = "";
+        this.localPlayerName = username;
+        this.localPlayerWins = wins;
     }
 }

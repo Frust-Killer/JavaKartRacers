@@ -104,9 +104,17 @@ public class Game {
     public void loseGame(String[] data) {
         isGameOver = true;
         int winnerNumber = Integer.parseInt(data[1]);
+        String winnerName = "";
+        if (data.length > 2) {
+            winnerName = data[2].replaceAll("_", " ");
+        }
         gameTimer.stop();
         gameEndType = RACE_LOST;
-        gameEndReason = "Player " + winnerNumber + " has won the game!";
+        if (winnerName == null || winnerName.isEmpty()) {
+            gameEndReason = "Player " + winnerNumber + " has won the game!";
+        } else {
+            gameEndReason = "Player " + winnerName + " (" + winnerNumber + ") has won the game!";
+        }
         BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(this));
     }
 

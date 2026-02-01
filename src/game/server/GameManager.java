@@ -34,9 +34,12 @@ public class GameManager {
 
     public static synchronized void sendRaceWinnerToAllPlayers(ClientHandler winner) {
         int winnerNumber = winner.getPlayerNumber();
+        // encode winner name (replace spaces with underscores) to send safely
+        String winnerName = winner.getAuthenticatedUsername();
+        String encodedName = (winnerName == null) ? "" : winnerName.replaceAll(" ", "_");
         for (ClientHandler handler : getPlayersInGame()) {
             if (winner.equals(handler)) continue; // Don't send to self.
-            handler.raceLost(winnerNumber);
+            handler.raceLost(winnerNumber, encodedName);
         }
     }
 

@@ -63,6 +63,8 @@ public class GameDisplay implements Display {
     private boolean raceCountdownFinished;
     private boolean isBadWeather;
     private boolean hasRaceStarted;
+    private long lastKartSendTime = 0;
+    private static final long KART_SEND_INTERVAL_MS = 100; // 10 updates per second
 
     private final ServerHandler connection = ServerManager.getHandler();
 
@@ -130,7 +132,12 @@ public class GameDisplay implements Display {
 
     @Override
     public void update(Graphics g) {
-        connection.sendKart(mainPlayerKart);
+        // Throttle kart updates to avoid network congestion
+        long now = System.currentTimeMillis();
+        if (now - lastKartSendTime >= KART_SEND_INTERVAL_MS) {
+            connection.sendKart(mainPlayerKart);
+            lastKartSendTime = now;
+        }
         drawRacetrack(g);
         updateOtherKarts(g);
         updatePlayerKart(g);

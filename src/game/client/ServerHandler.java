@@ -263,7 +263,16 @@ public class ServerHandler implements Runnable {
             kartChoice = Integer.parseInt(data[2]);
             mapChoice = Integer.parseInt(data[3]);
 
+            // New fields: username and wins may be present
+            String username = data.length > 4 ? data[4] : "";
+            int wins = 0;
+            try { if (data.length > 5) wins = Integer.parseInt(data[5]); } catch (NumberFormatException ignored) {}
+
             chosenKarts.put(playerNumber, kartChoice);
+
+            if (lobbyDisplay != null) {
+                lobbyDisplay.setLocalPlayerInfo(username.replaceAll("_", " "), wins);
+            }
 
             lobbyDisplay.prepareLobbyForPlayer();
             joinDisplay.sendPlayerToLobby();
