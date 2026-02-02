@@ -59,6 +59,14 @@ public class GameOverDisplay implements Display {
     private void addDisplayComponents() {
         baseDisplay.addLabel(currentGame.getGameEndReason(), 500, 25, 175, 400, Color.white, 20);
         baseDisplay.addLabel("Time: " + currentGame.getGameTimeFormatted(), 500, 25, 175, 450, Color.white, 20);
+        // Add prominent winner/loser labels via baseDisplay so they appear above other UI elements
+        int endType = currentGame.getGameEndType();
+        if (endType == RACE_WON) {
+            baseDisplay.addLabel("YOU WON!!", 400, 80, 200, 150, Color.WHITE, 48);
+        } else if (endType == 2) { // RACE_LOST is defined in Game as 2
+            baseDisplay.addLabel("YOU LOST", 400, 80, 200, 140, Color.RED, 48);
+            baseDisplay.addLabel(currentGame.getGameEndReason(), 500, 25, 175, 220, Color.white, 20);
+        }
         returnToMenuButton = baseDisplay.addButton(returnToMenu, 354, 500);
     }
 
@@ -68,6 +76,23 @@ public class GameOverDisplay implements Display {
         updatePlayerKart(g);
         updateOtherKarts(g);
         gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
+
+        // Draw overlay text depending on end type
+        int endType = currentGame.getGameEndType();
+        g.setColor(Color.WHITE);
+        if (endType == RACE_WON) {
+            g.setFont(new Font("Arial", Font.BOLD, 72));
+            g.drawString("YOU WON!!", 250, 200);
+        } else if (endType == RACE_LOST) {
+            g.setFont(new Font("Arial", Font.BOLD, 60));
+            g.setColor(Color.RED);
+            g.drawString("YOU LOST", 270, 180);
+            g.setColor(Color.WHITE);
+            g.setFont(new Font("Arial", Font.BOLD, 20));
+            g.drawString(currentGame.getGameEndReason(), 175, 220);
+        } else {
+            // default behavior for other end types
+        }
     }
 
     private void updatePlayerKart(Graphics g) {

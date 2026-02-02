@@ -244,9 +244,22 @@ public class ClientHandler implements Runnable {
         // Persist the win in the database if user authenticated
         if (this.authenticatedUsername != null) {
             DatabaseManager.recordWin(this.authenticatedUsername);
-            // New: record the race entry in races table
+            // Try to record by username first
+            DatabaseManager.recordRace(this.authenticatedUsername);
+            int count = DatabaseManager.countRacesForPlayer(this.authenticatedUsername);
+            if (count > 0) {
+                System.out.println("Victoire SQL : " + this.authenticatedUsername + " (races recorded=" + count + ")");
+            } else {
+                // Fallback: try recording by numeric playerNumber if username lookup failed
+                System.err.println("[Server] recordRace by username returned 0 rows; falling back to playerNumber=" + this.playerNumber);
+                DatabaseManager.recordRace(this.playerNumber);
+                int count2 = DatabaseManager.countRacesForPlayer(this.authenticatedUsername);
+                System.out.println("Victoire SQL fallback : " + this.authenticatedUsername + " (races recorded now=" + count2 + ")");
+            }
+        } else {
+            // If no authenticated username, try to record by playerNumber (best-effort)
+            System.err.println("[Server] No authenticated username for winner, attempting to record race by playerNumber=" + this.playerNumber);
             DatabaseManager.recordRace(this.playerNumber);
-            System.out.println("Victoire SQL : " + this.authenticatedUsername);
         }
     }
 

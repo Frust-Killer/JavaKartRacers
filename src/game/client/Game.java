@@ -119,20 +119,45 @@ public class Game {
     }
 
     public void kartCollision(Player victim1, Player victim2) {
-        // Instead of ending the game, apply a slowdown + flashing effect to both karts
+        // Apply bounce: push both karts away from collision point for a small distance
         Kart k1 = victim1.getKart();
         Kart k2 = victim2.getKart();
-        if (k1 != null) k1.onKartCollision();
-        if (k2 != null) k2.onKartCollision();
-        // Notify server so it can broadcast a synchronized collision event with timestamp and original speeds
+        if (k1 == null || k2 == null) return;
+
+        // Compute vector from k2 -> k1
+        float dx = (float) (k1.getPosition().x - k2.getPosition().x);
+        float dy = (float) (k1.getPosition().y - k2.getPosition().y);
+        float len = (float) Math.sqrt(dx*dx + dy*dy);
+        if (len < 1e-3f) {
+            // Positions coincide -- use a small random vector
+            dx = (float) (Math.random() - 0.5f);
+            dy = (float) (Math.random() - 0.5f);
+            len = (float) Math.sqrt(dx*dx + dy*dy);
+            if (len == 0f) { dx = 1f; len = 1f; }
+        }
+        // Normalize and scale bounce distance
+        float bounceDistance = 12f; // pixels to push apart
+        float nx = dx / len;
+        float ny = dy / len;
+
+        // Apply bounce in opposite directions
+        k1.applyBounce(nx * bounceDistance, ny * bounceDistance);
+        k2.applyBounce(-nx * bounceDistance, -ny * bounceDistance);
+
+        // Schedule slowdown/flash to start after a short delay (3 seconds)
+        long now = System.currentTimeMillis();
+        long scheduledStart = now + 3000; // 3 seconds delay
+        float orig1 = k1.getSpeed();
+        float orig2 = k2.getSpeed();
+        k1.scheduleCollision(scheduledStart, orig1);
+        k2.scheduleCollision(scheduledStart, orig2);
+
+        // Notify server so it can broadcast a synchronized collision event with the scheduled timestamp and original speeds
         ServerHandler handler = ServerManager.getHandler();
         if (handler != null) {
-            long timestamp = System.currentTimeMillis();
-            float orig1 = (k1 != null) ? k1.getSpeed() : 0f;
-            float orig2 = (k2 != null) ? k2.getSpeed() : 0f;
-            handler.sendCollision(k1.getKartNumber(), k2.getKartNumber(), timestamp, orig1, orig2);
+            handler.sendCollision(k1.getKartNumber(), k2.getKartNumber(), scheduledStart, orig1, orig2);
         }
-        // Play collision sound handled in Kart.onKartCollision
+        // Play collision sound handled in Kart.onKartCollision (will play when collision actually begins)
     }
 
     public void endGame() {

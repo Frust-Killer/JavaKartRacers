@@ -198,6 +198,21 @@ public class GameDisplay implements Display {
         }
     }
 
+    // Simple particle representation for collision effects
+    private static class Particle {
+        float x, y; // relative to kart position
+        float vx, vy; // velocity
+        int life; // ms remaining
+        int maxLife;
+        Color color;
+        Particle(float x, float y, float vx, float vy, int life, Color color) {
+            this.x = x; this.y = y; this.vx = vx; this.vy = vy; this.life = life; this.maxLife = life; this.color = color;
+        }
+    }
+
+    // Map of active particles per kart
+    private final Map<Integer, List<Particle>> kartParticles = new HashMap<>();
+
     private void drawSingleKart(Graphics g, Kart kart) {
         kart.updatePosition();
         kart.updateImage();
@@ -210,34 +225,91 @@ public class GameDisplay implements Display {
             kart.getImage().paintIcon(baseDisplay, g2, (int) kart.getPosition().x, (int) kart.getPosition().y);
             g2.dispose();
 
-            // Draw remaining slowdown countdown above the kart
+            // Progress bar showing remaining slowdown
             long remainingMs = kart.getSlowUntil() - System.currentTimeMillis();
-            if (remainingMs > 0) {
-                int seconds = (int) Math.ceil(remainingMs / 1000.0);
-                g.setColor(Color.YELLOW);
-                g.setFont(new Font("Arial", Font.BOLD, 14));
-                g.drawString("Slow: " + seconds, (int) kart.getPosition().x, (int) kart.getPosition().y - 12);
+            if (remainingMs < 0) remainingMs = 0;
+            float fraction = 1.0f - (float) remainingMs / (float) Kart.COLLISION_EFFECT_MS;
+            if (fraction < 0f) fraction = 0f; if (fraction > 1f) fraction = 1f;
+            int barWidth = 40;
+            int barHeight = 6;
+            int x = (int) kart.getPosition().x;
+            int y = (int) kart.getPosition().y + kart.getImage().getIconHeight() + 4;
+
+            // Draw background
+            g.setColor(new Color(0,0,0,160));
+            g.fillRect(x, y, barWidth, barHeight);
+            // Draw filled fraction (green -> red)
+            Color fill = new Color((int) (255 * (1-fraction)), (int) (255 * fraction), 0);
+            g.setColor(fill);
+            g.fillRect(x+1, y+1, (int) ((barWidth-2) * fraction), barHeight-2);
+
+            // Spawn particles on initial flash start
+            List<Particle> particles = kartParticles.computeIfAbsent(kart.getKartNumber(), k -> new ArrayList<>());
+            if (particles.isEmpty() && elapsed < 200) {
+                spawnParticlesForKart(kart, 12);
             }
+            // Update and draw particles
+            updateAndDrawParticles(g, kart, particles);
+
         } else {
             kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+            // Clear particles if any
+            kartParticles.remove(kart.getKartNumber());
         }
+    }
+
+    private void spawnParticlesForKart(Kart kart, int count) {
+        List<Particle> particles = kartParticles.computeIfAbsent(kart.getKartNumber(), k -> new ArrayList<>());
+        float w = kart.getImage().getIconWidth();
+        float h = kart.getImage().getIconHeight();
+        for (int i=0;i<count;i++) {
+            float angle = (float) (Math.random() * Math.PI * 2);
+            float speed = (float) (Math.random() * 1.8 + 0.6);
+            float vx = (float) Math.cos(angle) * speed;
+            float vy = (float) Math.sin(angle) * speed;
+            int life = (int) (300 + Math.random() * 400);
+            Color color = new Color(200 + (int)(Math.random()*55), 50, 50, 220);
+            particles.add(new Particle(w/2f, h/2f, vx, vy, life, color));
+        }
+    }
+
+    private void updateAndDrawParticles(Graphics g, Kart kart, List<Particle> particles) {
+        Graphics2D g2 = (Graphics2D) g.create();
+        int baseX = (int) kart.getPosition().x;
+        int baseY = (int) kart.getPosition().y;
+        Iterator<Particle> it = particles.iterator();
+        while (it.hasNext()) {
+            Particle p = it.next();
+            if (p.life <= 0) { it.remove(); continue; }
+            // update
+            p.x += p.vx;
+            p.y += p.vy;
+            p.vx *= 0.98f; p.vy *= 0.98f;
+            p.life -= 16; // approx frame
+            float alpha = Math.max(0f, (float)p.life / (float)p.maxLife);
+            Color c = new Color(p.color.getRed(), p.color.getGreen(), p.color.getBlue(), (int)(p.color.getAlpha()*alpha));
+            g2.setColor(c);
+            int size = (int) Math.max(2, 6 * alpha);
+            g2.fillOval(baseX + (int)p.x - size/2, baseY + (int)p.y - size/2, size, size);
+        }
+        g2.dispose();
     }
 
     // Called by ServerHandler when a synchronized collision message arrives from the server
     public void handleNetworkCollision(int kart1Number, int kart2Number, long timestamp, float orig1, float orig2) {
-        // Find the players and apply the collision with the supplied timestamp and speeds
+        // Find the players and schedule the collision with the supplied timestamp and speeds
         for (Player p : opponents) {
             Kart k = p.getKart();
             if (k.getKartNumber() == kart1Number) {
-                k.onKartCollision(timestamp, orig1);
+                k.scheduleCollision(timestamp, orig1);
             }
             if (k.getKartNumber() == kart2Number) {
-                k.onKartCollision(timestamp, orig2);
+                k.scheduleCollision(timestamp, orig2);
             }
         }
         // Also check main player
-        if (mainPlayerKart.getKartNumber() == kart1Number) mainPlayerKart.onKartCollision(timestamp, orig1);
-        if (mainPlayerKart.getKartNumber() == kart2Number) mainPlayerKart.onKartCollision(timestamp, orig2);
+        if (mainPlayerKart.getKartNumber() == kart1Number) mainPlayerKart.scheduleCollision(timestamp, orig1);
+        if (mainPlayerKart.getKartNumber() == kart2Number) mainPlayerKart.scheduleCollision(timestamp, orig2);
     }
 
     private void drawHUD(Graphics g) {

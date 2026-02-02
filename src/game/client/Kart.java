@@ -49,6 +49,9 @@ public class Kart {
     // store original speed to use for recovery curve
     private float savedOriginalSpeed = 0f;
 
+    // Pending scheduled collision start (grace period)
+    private long pendingCollisionStart = 0;
+
     // Property access methods.
     public boolean isFlashing() { return System.currentTimeMillis() < slowUntil; }
     public long getFlashStart() { return flashStart; }
@@ -61,6 +64,7 @@ public class Kart {
     public Point2D.Float getPosition()  { return position; }
     public boolean hasCrashed()         { return kartCrashed; }
     public long getSlowUntil()          { return slowUntil; }
+    public long getPendingCollisionStart() { return pendingCollisionStart; }
 
     public void setRotation(float newRotation) {
         rotation = newRotation;
@@ -123,11 +127,18 @@ public class Kart {
 
         hitBox.setLocation((int) newPositionX + HIT_BOX_BUFFER,(int) newPositionY + HIT_BOX_BUFFER);
 
+        // If a scheduled collision start time has arrived, start the collision effect
+        long now = System.currentTimeMillis();
+        if (pendingCollisionStart > 0 && now >= pendingCollisionStart) {
+            // Start collision effect now using the scheduled start and savedOriginalSpeed
+            onKartCollision(pendingCollisionStart, savedOriginalSpeed);
+            pendingCollisionStart = 0;
+        }
+
         // Collision detection with track boundaries.
         if (isNewPositionOnTrack()) {
             kartCrashed = false;
             // If currently slowed due to collision, apply recovery curve based on savedOriginalSpeed
-            long now = System.currentTimeMillis();
             if (now < slowUntil) {
                 long elapsed = now - flashStart;
                 float progress = (float) elapsed / (float) COLLISION_EFFECT_MS;
@@ -207,6 +218,20 @@ public class Kart {
         // Temporarily set the current speed to 0; movement will be handled via recovery curve in updatePosition
         this.speed = 0f;
         AudioManager.playSound("KART_COLLISION", false);
+    }
+
+    // Schedule a collision effect to start at a future timestamp (grace period)
+    public void scheduleCollision(long startTimestamp, float originalSpeed) {
+        this.pendingCollisionStart = startTimestamp;
+        this.savedOriginalSpeed = originalSpeed;
+    }
+
+    // Apply a small bounce displacement to the kart (used immediately on collision)
+    public void applyBounce(float dx, float dy) {
+        // Displace position a bit, ensuring we remain within track bounds
+        position.x += dx;
+        position.y += dy;
+        hitBox.setLocation((int) position.x + HIT_BOX_BUFFER, (int) position.y + HIT_BOX_BUFFER);
     }
 
     // Called by player input to brake quickly

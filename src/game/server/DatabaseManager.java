@@ -153,6 +153,64 @@ public class DatabaseManager {
         }
     }
 
+    // New overload: accept username, look up player id, and insert into races
+    public static void recordRace(String username) {
+        if (username == null || username.isEmpty()) {
+            System.err.println("[DB] recordRace: username is null or empty, aborting");
+            return;
+        }
+        String lookupSql = "SELECT id FROM players WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement lookupStmt = conn.prepareStatement(lookupSql)) {
+            lookupStmt.setString(1, username);
+            ResultSet rs = lookupStmt.executeQuery();
+            if (rs.next()) {
+                int id = rs.getInt(1);
+                recordRace(id);
+            } else {
+                System.err.println("[DB] recordRace: username not found: " + username);
+            }
+        } catch (SQLException e) {
+            System.err.println("[DB] recordRace(lookup) failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    // Get player id by username, or -1 if not found
+    public static int getPlayerId(String username) {
+        if (username == null || username.isEmpty()) return -1;
+        String sql = "SELECT id FROM players WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+            return -1;
+        } catch (SQLException e) {
+            System.err.println("[DB] getPlayerId failed: " + e.getMessage());
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    // Count number of races recorded for a username (helper for diagnostics)
+    public static int countRacesForPlayer(String username) {
+        int id = getPlayerId(username);
+        if (id <= 0) return 0;
+        String sql = "SELECT COUNT(*) FROM races WHERE winner_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+            return 0;
+        } catch (SQLException e) {
+            System.err.println("[DB] countRacesForPlayer failed: " + e.getMessage());
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
     // Debug helper: dump players table to console
     public static void debugDumpPlayers() {
         String sql = "SELECT id, username, password, total_wins FROM players";
