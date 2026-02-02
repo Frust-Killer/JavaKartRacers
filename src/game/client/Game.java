@@ -119,11 +119,20 @@ public class Game {
     }
 
     public void kartCollision(Player victim1, Player victim2) {
-        isGameOver = true;
-        gameTimer.stop();
-        gameEndType = KART_CRASHED;
-        gameEndReason = "Player " + victim1.getPlayerNumber() + " and Player " + victim2.getPlayerNumber() + " have crashed!";
-        BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(this));
+        // Instead of ending the game, apply a slowdown + flashing effect to both karts
+        Kart k1 = victim1.getKart();
+        Kart k2 = victim2.getKart();
+        if (k1 != null) k1.onKartCollision();
+        if (k2 != null) k2.onKartCollision();
+        // Notify server so it can broadcast a synchronized collision event with timestamp and original speeds
+        ServerHandler handler = ServerManager.getHandler();
+        if (handler != null) {
+            long timestamp = System.currentTimeMillis();
+            float orig1 = (k1 != null) ? k1.getSpeed() : 0f;
+            float orig2 = (k2 != null) ? k2.getSpeed() : 0f;
+            handler.sendCollision(k1.getKartNumber(), k2.getKartNumber(), timestamp, orig1, orig2);
+        }
+        // Play collision sound handled in Kart.onKartCollision
     }
 
     public void endGame() {

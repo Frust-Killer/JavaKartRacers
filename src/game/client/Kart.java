@@ -41,8 +41,17 @@ public class Kart {
     private final Racetrack racetrack;
     private final Area track;
     private boolean kartCrashed;
+    // Collision visual and slow state
+    private long slowUntil = 0;
+    private long flashStart = 0;
+    public static final long COLLISION_EFFECT_MS = 5000; // 5 seconds (made public for UI)
+
+    // store original speed to use for recovery curve
+    private float savedOriginalSpeed = 0f;
 
     // Property access methods.
+    public boolean isFlashing() { return System.currentTimeMillis() < slowUntil; }
+    public long getFlashStart() { return flashStart; }
     public Player getOwner()            { return owner; }
     public float getSpeed()             { return speed; }
     public float getRotation()          { return rotation; }
@@ -51,6 +60,7 @@ public class Kart {
     public Rectangle getHitBox()        { return hitBox; }
     public Point2D.Float getPosition()  { return position; }
     public boolean hasCrashed()         { return kartCrashed; }
+    public long getSlowUntil()          { return slowUntil; }
 
     public void setRotation(float newRotation) {
         rotation = newRotation;
@@ -116,7 +126,19 @@ public class Kart {
         // Collision detection with track boundaries.
         if (isNewPositionOnTrack()) {
             kartCrashed = false;
-            position.setLocation(newPositionX, newPositionY);
+            // If currently slowed due to collision, apply recovery curve based on savedOriginalSpeed
+            long now = System.currentTimeMillis();
+            if (now < slowUntil) {
+                long elapsed = now - flashStart;
+                float progress = (float) elapsed / (float) COLLISION_EFFECT_MS;
+                if (progress < 0f) progress = 0f;
+                if (progress > 1f) progress = 1f;
+                float effectiveSpeed = savedOriginalSpeed * progress;
+                position.setLocation(position.x + (getSpeedMultiplierX() * effectiveSpeed), position.y + (getSpeedMultiplierY() * effectiveSpeed));
+                // continue without changing the stored speed directly
+            } else {
+                position.setLocation(newPositionX, newPositionY);
+            }
         }
     }
 
@@ -169,6 +191,29 @@ public class Kart {
     public void updateImage() {
         direction = (int) rotation / 10;
         image = kartSprites[direction];
+    }
+
+    // Called when this kart collides with another kart
+    public void onKartCollision() {
+        // Use more dramatic recovery: store original speed and recover from 0 -> original over time
+        onKartCollision(System.currentTimeMillis(), this.speed);
+    }
+
+    // New overload to allow synchronized collisions from server with supplied timestamp and original speed
+    public void onKartCollision(long flashStartTimestamp, float originalSpeed) {
+        this.slowUntil = flashStartTimestamp + COLLISION_EFFECT_MS;
+        this.flashStart = flashStartTimestamp;
+        this.savedOriginalSpeed = originalSpeed;
+        // Temporarily set the current speed to 0; movement will be handled via recovery curve in updatePosition
+        this.speed = 0f;
+        AudioManager.playSound("KART_COLLISION", false);
+    }
+
+    // Called by player input to brake quickly
+    public void applyBrake() {
+        // Strong deceleration
+        speed -= ACCELERATION * 2;
+        if (speed < SPEED_MIN) speed = SPEED_MIN;
     }
 
     public void updateSpeed(int speedDirection) {

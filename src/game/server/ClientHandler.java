@@ -71,6 +71,14 @@ public class ClientHandler implements Runnable {
         sendCommand("SEND_OP_KART_DATA " + kartNum + " " + rot + " " + speed + " " + posX + " " + posY);
     }
 
+    public void broadcastCollision(int kart1, int kart2, long timestamp, float orig1, float orig2) {
+        // Broadcast to all players in-game
+        for (ClientHandler handler : GameManager.getPlayersInGame()) {
+            if (handler.equals(this)) continue; // don't send it back to sender
+            handler.sendCommand("BROADCAST_COLLISION " + kart1 + " " + kart2 + " " + timestamp + " " + orig1 + " " + orig2);
+        }
+    }
+
     public void startGame() {
         sendCommand("REQUEST_START_GAME");
     }
@@ -193,12 +201,33 @@ public class ClientHandler implements Runnable {
             case "PLAYER_UNREADY"          -> setPlayerReady(false);
             case "UPDATE_OWN_KART_OPTION"  -> updateOwnKartChoice(messageData);
             case "REQUEST_KART_CHOICE"     -> sendKartChoice(messageData); // AJOUTÉ
-            case "UPDATE_MAP_CHOICE"       -> updateChosenMap(messageData);
+            case "UPDATE_MAP_CHOICE"        -> updateChosenMap(messageData);
             case "SEND_KART_DATA"          -> processKartData(messageData);
-            case "END_CONNECTION"          -> endClientConnection();
+            case "SEND_COLLISION"          -> processCollision(messageData);
+            case "END_CONNECTION"           -> endClientConnection();
             case "END_GAME"                -> GameManager.endGame();
             case "RACE_WON"                -> handleRaceWon(); // Appel d'une méthode dédiée
             case "HEARTBEAT"               -> handleHeartbeat();
+        }
+    }
+
+    private void processCollision(String[] data) {
+        try {
+            // Client sends: SEND_COLLISION <kart1> <kart2> <timestamp> <origSpeed1> <origSpeed2>
+            int kart1 = Integer.parseInt(data[1]);
+            int kart2 = Integer.parseInt(data[2]);
+            long timestamp = Long.parseLong(data[3]);
+            float orig1 = Float.parseFloat(data[4]);
+            float orig2 = Float.parseFloat(data[5]);
+
+            // Broadcast collision to other players in game
+            broadcastCollision(kart1, kart2, timestamp, orig1, orig2);
+
+            // Also notify server-side GameManager if needed (not implemented here)
+            System.out.println("[Server] Collision received: " + kart1 + " vs " + kart2 + " at " + timestamp);
+
+        } catch (Exception e) {
+            System.err.println("Error parsing SEND_COLLISION: " + e.getMessage());
         }
     }
 
@@ -209,13 +238,14 @@ public class ClientHandler implements Runnable {
         sendCommand("HEARTBEAT_ACK");
     }
     
-    
     private void handleRaceWon() {
         // Notify other players about the winner
         GameManager.sendRaceWinnerToAllPlayers(this);
         // Persist the win in the database if user authenticated
         if (this.authenticatedUsername != null) {
             DatabaseManager.recordWin(this.authenticatedUsername);
+            // New: record the race entry in races table
+            DatabaseManager.recordRace(this.playerNumber);
             System.out.println("Victoire SQL : " + this.authenticatedUsername);
         }
     }

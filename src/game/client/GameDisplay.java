@@ -42,6 +42,7 @@ public class GameDisplay implements Display {
     private boolean keyBackwardActive;
     private boolean keyLeftActive;
     private boolean keyRightActive;
+    private boolean keyBrakeActive; // space bar brake
 
     // Images.
     private ImageIcon wrongWayMessage;
@@ -200,7 +201,43 @@ public class GameDisplay implements Display {
     private void drawSingleKart(Graphics g, Kart kart) {
         kart.updatePosition();
         kart.updateImage();
-        kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+        // If kart is flashing due to a recent collision, draw with alternating transparency
+        if (kart.isFlashing()) {
+            long elapsed = System.currentTimeMillis() - kart.getFlashStart();
+            int alpha = ((elapsed / 200) % 2 == 0) ? 255 : 100; // flash every 200ms
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha / 255f));
+            kart.getImage().paintIcon(baseDisplay, g2, (int) kart.getPosition().x, (int) kart.getPosition().y);
+            g2.dispose();
+
+            // Draw remaining slowdown countdown above the kart
+            long remainingMs = kart.getSlowUntil() - System.currentTimeMillis();
+            if (remainingMs > 0) {
+                int seconds = (int) Math.ceil(remainingMs / 1000.0);
+                g.setColor(Color.YELLOW);
+                g.setFont(new Font("Arial", Font.BOLD, 14));
+                g.drawString("Slow: " + seconds, (int) kart.getPosition().x, (int) kart.getPosition().y - 12);
+            }
+        } else {
+            kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+        }
+    }
+
+    // Called by ServerHandler when a synchronized collision message arrives from the server
+    public void handleNetworkCollision(int kart1Number, int kart2Number, long timestamp, float orig1, float orig2) {
+        // Find the players and apply the collision with the supplied timestamp and speeds
+        for (Player p : opponents) {
+            Kart k = p.getKart();
+            if (k.getKartNumber() == kart1Number) {
+                k.onKartCollision(timestamp, orig1);
+            }
+            if (k.getKartNumber() == kart2Number) {
+                k.onKartCollision(timestamp, orig2);
+            }
+        }
+        // Also check main player
+        if (mainPlayerKart.getKartNumber() == kart1Number) mainPlayerKart.onKartCollision(timestamp, orig1);
+        if (mainPlayerKart.getKartNumber() == kart2Number) mainPlayerKart.onKartCollision(timestamp, orig2);
     }
 
     private void drawHUD(Graphics g) {
@@ -246,6 +283,11 @@ public class GameDisplay implements Display {
 
         if (keyForwardActive) kart.updateSpeed(FORWARD);
         else if (keyBackwardActive) kart.updateSpeed(BACKWARD);
+
+        // Brake (space) - strong deceleration while active
+        if (keyBrakeActive) {
+            kart.applyBrake();
+        }
     }
 
     @Override
@@ -261,6 +303,7 @@ public class GameDisplay implements Display {
             else if (keyCode == keyRight) keyRightActive = keyActivated;
             else if (keyCode == keyForward) keyForwardActive = keyActivated;
             else if (keyCode == keyBackward) keyBackwardActive = keyActivated;
+            else if (keyCode == KeyEvent.VK_SPACE) keyBrakeActive = keyActivated;
         }
 
         // Open the pause menu once the player presses "Esc".

@@ -28,9 +28,10 @@ public class ControlledPlayer extends Player {
 
     // These can eventually be collected from a settings file.
     private void assignKeys() {
-        keyForward = KeyEvent.VK_W;
-        keyBackward = KeyEvent.VK_S;
-        keyLeft = KeyEvent.VK_A;
-        keyRight = KeyEvent.VK_D;
+        // Switched from WASD to arrow keys
+        keyForward = KeyEvent.VK_UP;
+        keyBackward = KeyEvent.VK_DOWN;
+        keyLeft = KeyEvent.VK_LEFT;
+        keyRight = KeyEvent.VK_RIGHT;
     }
 }

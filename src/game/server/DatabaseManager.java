@@ -139,6 +139,20 @@ public class DatabaseManager {
         }
     }
 
+    // New: record a completed race entry into the races table. winnerNumber is player's assigned numeric id.
+    public static void recordRace(int winnerNumber) {
+        String sql = "INSERT INTO races (winner_id) VALUES (?)"; // race_date defaults to CURRENT_TIMESTAMP
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, winnerNumber);
+            int rows = stmt.executeUpdate();
+            System.out.println("[DB] recordRace(winnerNumber=" + winnerNumber + ") => rows=" + rows);
+        } catch (SQLException e) {
+            System.err.println("[DB] recordRace failed: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
     // Debug helper: dump players table to console
     public static void debugDumpPlayers() {
         String sql = "SELECT id, username, password, total_wins FROM players";

@@ -223,6 +223,7 @@ public class ServerHandler implements Runnable {
             case "UPDATE_MAP_CHOICE"        -> updateChosenMap(messageData);
             case "UPDATE_WEATHER"           -> updateWeather(messageData);
             case "SEND_OP_KART_DATA"        -> updateOpponentKartData(messageData);
+            case "BROADCAST_COLLISION"      -> handleBroadcastCollision(messageData);
             case "END_GAME"                 -> endGame();
             case "RACE_LOST"                -> activeGame.loseGame(messageData);
             default -> throw new IllegalStateException("Unrecognised server command: " + command);
@@ -530,6 +531,24 @@ public class ServerHandler implements Runnable {
         }
         catch (NumberFormatException e) {
             System.err.println("Type conversion error when removing an opponent: " + e.getMessage());
+        }
+    }
+
+    public void sendCollision(int kart1, int kart2, long timestamp, float orig1, float orig2) {
+        sendCommand("SEND_COLLISION " + kart1 + " " + kart2 + " " + timestamp + " " + orig1 + " " + orig2);
+    }
+
+    private void handleBroadcastCollision(String[] data) {
+        try {
+            // Expect: BROADCAST_COLLISION <kart1> <kart2> <timestamp> <orig1> <orig2>
+            int kart1 = Integer.parseInt(data[1]);
+            int kart2 = Integer.parseInt(data[2]);
+            long timestamp = Long.parseLong(data[3]);
+            float orig1 = Float.parseFloat(data[4]);
+            float orig2 = Float.parseFloat(data[5]);
+            if (gameDisplay != null) gameDisplay.handleNetworkCollision(kart1, kart2, timestamp, orig1, orig2);
+        } catch (Exception e) {
+            System.err.println("Error parsing BROADCAST_COLLISION: " + e.getMessage());
         }
     }
 }
