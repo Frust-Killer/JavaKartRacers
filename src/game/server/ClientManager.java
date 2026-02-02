@@ -19,9 +19,44 @@ public class ClientManager {
     // Server properties.
     private static ServerSocket serverSocket;
     private static final List<ClientHandler> connectedClients = new ArrayList<>();
+    // Increase prune timeout to 5 minutes to avoid false positives during tests
+    private static final long CLIENT_TIMEOUT_MS = 300000; // 5 minutes timeout for heartbeats
 
     private static synchronized List<ClientHandler> getConnectedClients() {
         return connectedClients;
+    }
+
+    // Start a background thread to prune dead clients based on heartbeat
+    private static void startPruneThread() {
+        Thread t = new Thread(() -> {
+            while (true) {
+                try {
+                    Thread.sleep(5000);
+                } catch (InterruptedException ignored) {}
+                long now = System.currentTimeMillis();
+                List<ClientHandler> snapshot;
+                synchronized (connectedClients) {
+                    snapshot = new ArrayList<>(connectedClients);
+                }
+                for (ClientHandler ch : snapshot) {
+                    try {
+                        long last = ch.getLastHeartbeat();
+                        if (now - last > CLIENT_TIMEOUT_MS) {
+                            String addr = "unknown";
+                            try { addr = ch.getRemoteAddress(); } catch (Exception ignored) {}
+                            String user = ch.getAuthenticatedUsername();
+                            System.out.println("[Server] Pruning dead client: num=" + ch.getPlayerNumber()
+                                    + " user=" + user + " addr=" + addr + " lastSeen=" + last);
+                            ch.endServerConnection();
+                        }
+                    } catch (Exception e) {
+                        System.err.println("[Server] Error while pruning clients: " + e.getMessage());
+                    }
+                }
+            }
+        });
+        t.setDaemon(true);
+        t.start();
     }
 
     // Prevent object creation from the implicit public constructor.
@@ -54,10 +89,16 @@ public class ClientManager {
     }
 
     public static synchronized void sendNewPlayerToPlayers(ClientHandler originator) {
+        // Only broadcast new-player notifications if the originator has been assigned a valid player number
+        if (originator == null || originator.getPlayerNumber() <= 0) return;
+        System.out.println("[ClientManager] Broadcasting new player: " + originator.getPlayerNumber() + " to " + getConnectedClients().size() + " clients");
         for (ClientHandler handler : getConnectedClients()) {
             if (originator.equals(handler)) continue; // Don't send to self.
-            int playerNumber = originator.getPlayerNumber();
-            handler.updateConnectedPlayers(playerNumber);
+            try {
+                handler.updateConnectedPlayers(originator);
+            } catch (Exception e) {
+                System.err.println("[Server] Failed to notify handler of new player: " + e.getMessage());
+            }
         }
     }
 
@@ -83,6 +124,9 @@ public class ClientManager {
     public static void establishConnection() {
 
         boolean isServerAlive = setupServer();
+
+        // Start pruning dead clients after server is up
+        startPruneThread();
 
         while (isServerAlive) {
             Socket clientSocket = waitForClientConnection();

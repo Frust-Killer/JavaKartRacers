@@ -27,33 +27,64 @@ public class LobbyManager {
 
     public static synchronized int addPlayer(ClientHandler player) {
         // Borrow a number from the list of unallocated numbers.
+        if (validPlayerNumbers.isEmpty()) {
+            System.err.println("[Lobby] addPlayer: no available player numbers");
+            // Do not add the client to playersInLobby because they were not
+            // assigned a valid player number. The caller should handle the
+            // failure and not attempt to include this client in lobby flows.
+            return -1; // Indicate failure to assign a number
+        }
+
         int playerNumber = Collections.min(validPlayerNumbers);
         validPlayerNumbers.remove((Integer) playerNumber);
         playersInLobby.add(player);
+        System.out.println("[Lobby] addPlayer: assigned number=" + playerNumber + " playersInLobbySize=" + playersInLobby.size());
         return playerNumber;
     }
 
     public static synchronized void removePlayer(ClientHandler player) {
         int playerNumber = player.getPlayerNumber();
+        // If the player number is not valid (e.g., 0 because it was never assigned),
+        // avoid returning it to the pool to prevent assigning 0 to future players.
+        if (playerNumber <= 0) {
+            // Still remove the client object from the lobby list if present, but
+            // do not modify the pools/maps that rely on a valid player number.
+            playersInLobby.remove(player);
+            System.out.println("[Lobby] removePlayer: ignored invalid playerNumber=" + playerNumber + " playersInLobbySize=" + playersInLobby.size());
+            return;
+        }
+
         playersInLobby.remove(player);
         playerKartChoices.remove(playerNumber);
         playerReadyStates.remove(playerNumber);
         // Return number back to the list of unallocated numbers.
         if (!validPlayerNumbers.contains(playerNumber)) validPlayerNumbers.add(playerNumber);
+        // Keep the available numbers ordered so Collections.min() remains predictable.
+        Collections.sort(validPlayerNumbers);
+        System.out.println("[Lobby] removePlayer: removed number=" + playerNumber + " playersInLobbySize=" + playersInLobby.size());
     }
 
     public static synchronized void setReadyState(int playerNumber, boolean state) {
         playerReadyStates.put(playerNumber, state);
+        System.out.println("[Lobby] setReadyState: player=" + playerNumber + " state=" + state + " allReadyStates=" + playerReadyStates);
         checkGameStart();
     }
 
     public static synchronized int setKartChoice(int playerNumber) {
+        // Defensive guard: ensure playerNumber is valid before using it.
+        if (playerNumber <= 0) {
+            System.err.println("[Lobby] setKartChoice: invalid playerNumber=" + playerNumber + ", defaulting to kart 0");
+            playerKartChoices.put(playerNumber, 0);
+            return 0;
+        }
+
         int kartChoice = playerNumber - 1;
         // Prevent a player from choosing a kart already chosen.
         if (playerKartChoices.containsValue(kartChoice)) {
             kartChoice = getNextValidKartOption(kartChoice);
         }
         playerKartChoices.put(playerNumber, kartChoice);
+        System.out.println("[Lobby] setKartChoice: player=" + playerNumber + " assignedKart=" + kartChoice + " allChoices=" + playerKartChoices);
         return kartChoice;
     }
 
@@ -75,16 +106,13 @@ public class LobbyManager {
     }
 
     public static synchronized int getKartChoice(int playerNumber) {
-        try {
-            return playerKartChoices.get(playerNumber);
-        }
-        catch (NullPointerException e) {
-            return 0;
-        }
+        // Avoid NullPointerException by returning a default kart index of 0
+        return playerKartChoices.getOrDefault(playerNumber, 0);
     }
 
     public static synchronized boolean getReadyState(int playerNumber) {
-        return playerReadyStates.get(playerNumber);
+        // Default to false if not present
+        return playerReadyStates.getOrDefault(playerNumber, false);
     }
 
     public static synchronized int getChosenMap() {
@@ -106,6 +134,7 @@ public class LobbyManager {
     private static void checkGameStart() {
         // A minimum of 2 players is required to start.
         // All players in the lobby must be ready to start.
+        System.out.println("[Lobby] checkGameStart: readyStates=" + playerReadyStates + " size=" + playerReadyStates.size());
         if (!playerReadyStates.containsValue(false) && playerReadyStates.size() >= 2) {
             GameManager.initiateGame(playersInLobby, playerKartChoices, chosenMap);
             closeLobby();

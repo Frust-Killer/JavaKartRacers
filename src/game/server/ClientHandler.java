@@ -19,8 +19,15 @@ public class ClientHandler implements Runnable {
     private PrintWriter outputStream;
     private String authenticatedUsername; // Pour stocker le nom après le login
     public String getAuthenticatedUsername() { return authenticatedUsername; }
+    private volatile long lastHeartbeat = System.currentTimeMillis();
+    public long getLastHeartbeat() { return lastHeartbeat; }
+    // Expose remote socket address for logging
+    public String getRemoteAddress() { return (server == null) ? "unknown" : server.getRemoteSocketAddress().toString(); }
+    
     // Property access methods.
     public int getPlayerNumber() { return playerNumber; }
+    // New setter to allow LobbyManager to assign the number before adding to list
+    public void setPlayerNumber(int num) { this.playerNumber = num; }
 
     // Constructor.
     public ClientHandler(Socket server) { 
@@ -35,8 +42,17 @@ public class ClientHandler implements Runnable {
         sendCommand("UPDATE_OP_READY_STATE " + opponentNumber + " " + readyState);
     }
 
-    public void updateConnectedPlayers(int opponentNumber) {
-        sendCommand("OP_ADD " + opponentNumber);
+    public void updateConnectedPlayers(ClientHandler opponent) {
+        // Send a single, atomic snapshot for the opponent to avoid race conditions.
+        int opponentNumber = opponent.getPlayerNumber();
+        String name = opponent.getAuthenticatedUsername();
+        if (name == null) name = "";
+        String encoded = name.replaceAll(" ", "_");
+        int wins = DatabaseManager.getPlayerWins(name);
+        int kartChoice = LobbyManager.getKartChoice(opponentNumber);
+        boolean ready = LobbyManager.getReadyState(opponentNumber);
+        // Send an atomic PLAYER_JOINED message with all relevant fields
+        sendCommand("PLAYER_JOINED " + opponentNumber + " " + kartChoice + " " + ready + " " + encoded + " " + wins);
     }
 
     public void removeDisconnectedPlayer(int opponentNumber) {
@@ -66,27 +82,32 @@ public class ClientHandler implements Runnable {
 
     public void retrieveAllConnectedPlayers() {
         for (ClientHandler opponent : LobbyManager.getPlayersInLobby()) {
-            int opponentNumber = opponent.getPlayerNumber();
-            if (playerNumber == opponentNumber) continue; // Don't get their own.
-            updateConnectedPlayers(opponentNumber);
-        }
-    }
+            if (opponent == null) continue;
+            int oppNum = opponent.getPlayerNumber();
+            if (oppNum <= 0) continue; // Skip invalid entries
+            if (oppNum == this.playerNumber) continue; // Don't get their own.
+             // Use new signature to include username and wins
+             updateConnectedPlayers(opponent);
+         }
+     }
 
-    public void retrieveAllKartChoices() {
+     public void retrieveAllKartChoices() {
         for (ClientHandler opponent : LobbyManager.getPlayersInLobby()) {
             int opponentNumber = opponent.getPlayerNumber();
+            if (opponentNumber <= 0) continue; // Skip invalid
             if (playerNumber == opponentNumber) continue; // Don't get their own.
             updateOpponentKartChoice(opponentNumber, LobbyManager.getKartChoice(opponentNumber));
         }
-    }
+     }
 
-    public void retrieveAllReadyStates() {
+     public void retrieveAllReadyStates() {
         for (ClientHandler opponent : LobbyManager.getPlayersInLobby()) {
             int opponentNumber = opponent.getPlayerNumber();
+            if (opponentNumber <= 0) continue; // Skip invalid
             if (playerNumber == opponentNumber) continue; // Don't get their own.
             updateOpponentReadyState(opponentNumber, LobbyManager.getReadyState(opponentNumber));
         }
-    }
+     }
 
     // Handler thread loops here.
  // Dans ClientHandler.java (Serveur)
@@ -99,6 +120,8 @@ public class ClientHandler implements Runnable {
 
             String line;
             while ((line = inputStream.readLine()) != null) {
+                // Refresh lastHeartbeat on any incoming message to indicate activity
+                this.lastHeartbeat = System.currentTimeMillis();
                 System.out.println("[Server] Received from client: " + line);
 
                 // Robust parse: split into at most 3 parts to allow spaces in password
@@ -119,6 +142,8 @@ public class ClientHandler implements Runnable {
                     if (isValid) {
                         this.authenticatedUsername = user;
                         this.connectionActive = true;
+                        // Refresh heartbeat on successful authentication to avoid premature pruning
+                        this.lastHeartbeat = System.currentTimeMillis();
                         sendCommand("LOGIN_SUCCESS");
                         System.out.println("[Server] User authenticated: " + this.authenticatedUsername);
                         // On ne fait PLUS createPlayerLobbyData() ici !
@@ -148,6 +173,9 @@ public class ClientHandler implements Runnable {
         } catch (IOException e) {
             System.err.println("[Server] Connection error: " + e.getMessage());
             e.printStackTrace();
+        } finally {
+            // Ensure cleanup on loop exit
+            endServerConnection();
         }
     }
     
@@ -170,7 +198,15 @@ public class ClientHandler implements Runnable {
             case "END_CONNECTION"          -> endClientConnection();
             case "END_GAME"                -> GameManager.endGame();
             case "RACE_WON"                -> handleRaceWon(); // Appel d'une méthode dédiée
+            case "HEARTBEAT"               -> handleHeartbeat();
         }
+    }
+
+    // Update lastHeartbeat when a heartbeat arrives from the client
+    private void handleHeartbeat() {
+        this.lastHeartbeat = System.currentTimeMillis();
+        // Optionally acknowledge the heartbeat so clients can log/confirm
+        sendCommand("HEARTBEAT_ACK");
     }
     
     
@@ -213,15 +249,27 @@ public class ClientHandler implements Runnable {
     private void createPlayerLobbyData() {
         // Collect player information to then send back to the player.
         playerNumber = LobbyManager.addPlayer(this);
-        ClientManager.sendNewPlayerToPlayers(this);
-
+        // If no valid player number was available, terminate the connection gracefully.
+        if (playerNumber <= 0) {
+            System.err.println("[Server] Failed to assign player number, rejecting lobby request");
+            sendCommand("RESPOND_PL_LOBBY_DATA_FAILURE");
+            return;
+        }
+        // Refresh lastHeartbeat when player successfully joins lobby
+        this.lastHeartbeat = System.currentTimeMillis();
+        // Assign initial kart choice for this player and set ready state BEFORE
+        // notifying other players. This avoids race conditions where other
+        // clients receive an OP_ADD before the server has stored the new
+        // player's kart choice and ready state.
         int kartChoice = LobbyManager.setKartChoice(playerNumber);
-        ClientManager.sendKartChoiceToPlayers(this);
-
         LobbyManager.setReadyState(playerNumber, false);
-        ClientManager.sendReadyStateToPlayers(this);
-
         int mapChoice = LobbyManager.getChosenMap();
+
+        // Now notify other connected clients about the new player.
+        System.out.println("[Server] createPlayerLobbyData: player=" + playerNumber + " kartChoice=" + kartChoice + " mapChoice=" + mapChoice);
+        ClientManager.sendNewPlayerToPlayers(this);
+        ClientManager.sendKartChoiceToPlayers(this);
+        ClientManager.sendReadyStateToPlayers(this);
         ClientManager.sendMapChoiceToPlayers(this);
 
         retrieveAllConnectedPlayers();
@@ -248,7 +296,7 @@ public class ClientHandler implements Runnable {
         endServerConnection();
     }
 
-    private void endServerConnection() {
+    public void endServerConnection() {
         connectionActive = false;
 
         // Remove the player depending on the stage of the game they're in.
@@ -335,7 +383,8 @@ public class ClientHandler implements Runnable {
             default -> System.err.println("Commande inconnue: " + command);
         }
     }
-
+    
+    
     private synchronized void sendCommand(String command) {
         if (outputStream != null) {
             outputStream.println(command);

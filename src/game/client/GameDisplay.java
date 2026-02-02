@@ -220,6 +220,18 @@ public class GameDisplay implements Display {
 
         // Display an arrow above the player's head for easier identification.
         playerPointer.paintIcon(baseDisplay, g, (int) mainPlayerKart.getPosition().x, (int) mainPlayerKart.getPosition().y);
+
+        // Draw opponent names above their karts
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Arial", Font.BOLD, 12));
+        for (Player opponent : opponents) {
+            Kart k = opponent.getKart();
+            String name = opponent.getName();
+            if (name == null || name.isEmpty()) continue;
+            int x = (int) k.getPosition().x;
+            int y = (int) k.getPosition().y - 10; // above kart
+            g.drawString(name, x, y);
+        }
     }
 
     public void sendPlayerToMenu() {

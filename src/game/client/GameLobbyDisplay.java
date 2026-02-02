@@ -64,6 +64,8 @@ public class GameLobbyDisplay implements Display {
     private int localPlayerWins = 0;
 
     private final ServerHandler connection = ServerManager.getHandler();
+    private final Map<Integer, String> opponentNames = new HashMap<>();
+    private final Map<Integer, Integer> opponentWins = new HashMap<>();
 
     // Constructor.
     public GameLobbyDisplay() {
@@ -108,6 +110,10 @@ public class GameLobbyDisplay implements Display {
 
     public void prepareLobbyForPlayer() {
         collectPlayerValues();
+        if (playerNumber <= 0 || playerNumber > 6) {
+            System.err.println("GameLobbyDisplay: invalid playerNumber=" + playerNumber + ", aborting prepareLobbyForPlayer()");
+            return;
+        }
         displayPlayerValues();
         addDisplayComponents();
     }
@@ -115,13 +121,25 @@ public class GameLobbyDisplay implements Display {
     private void collectPlayerValues() {
         isPlayerReady = false;
         playerNumber = connection.getPlayerNumber();
+        // Sanity-check playerNumber
+        if (playerNumber <= 0 || playerNumber > 6) {
+            System.err.println("GameLobbyDisplay.collectPlayerValues: invalid playerNumber=" + playerNumber);
+            playerSelectedKart = 0;
+            selectedMap = 0;
+            return;
+        }
         playerSelectedKart = connection.getKartChoice();
+        if (playerSelectedKart < 0 || playerSelectedKart >= allOptionsKart.length) playerSelectedKart = 0;
         selectedMap = connection.getMapChoice();
+        if (selectedMap < 0 || selectedMap >= allOptionsMap.length) selectedMap = 0;
     }
 
     private void displayPlayerValues() {
         int playerIndex = playerNumber - 1;
-
+        if (playerIndex < 0 || playerIndex >= allDisplayedPlayerKarts.length) {
+            System.err.println("displayPlayerValues: invalid playerIndex=" + playerIndex);
+            return;
+        }
         allDisplayedPlayerKarts[playerIndex] = allOptionsKart[playerSelectedKart];
         allDisplayedPlayerLabels[playerIndex] = allPlayerLabelsCurrent[playerIndex];
         allDisplayedPlayerReadyStates[playerIndex] = imageSymbolNotReady;
@@ -132,8 +150,12 @@ public class GameLobbyDisplay implements Display {
         buttonBack = baseDisplay.addButton(imageBack, 20, 37);
         buttonReady = baseDisplay.addButton(imageReady, 704, 37);
 
-        buttonPlayerLeft = baseDisplay.addButton(imageArrowLeft, getLeftArrowX(playerNumber), getArrowY(playerNumber));
-        buttonPlayerRight = baseDisplay.addButton(imageArrowRight, getRightArrowX(playerNumber), getArrowY(playerNumber));
+        // Guard placement of player arrow buttons
+        int leftX = getLeftArrowX(playerNumber);
+        int rightX = getRightArrowX(playerNumber);
+        int arrowY = getArrowY(playerNumber);
+        buttonPlayerLeft = baseDisplay.addButton(imageArrowLeft, leftX, arrowY);
+        buttonPlayerRight = baseDisplay.addButton(imageArrowRight, rightX, arrowY);
 
         buttonMapLeft = baseDisplay.addButton(imageArrowLeft, 617,143);
         buttonMapRight = baseDisplay.addButton(imageArrowRight, 781,143);
@@ -146,6 +168,7 @@ public class GameLobbyDisplay implements Display {
         drawPlayerKartChoices(g);
         drawPlayerLabels(g);
         drawPlayerReadyStatus(g);
+        drawOpponentNames(g);
 
         // Draw local player info (name and wins) at top-right
         g.setColor(Color.WHITE);
@@ -154,12 +177,47 @@ public class GameLobbyDisplay implements Display {
         g.drawString("Wins: " + localPlayerWins, 570, 60);
     }
 
+    public void setOpponentInfo(int playerNumber, String username, int wins) {
+        if (playerNumber <= 0 || playerNumber > 6) {
+            System.err.println("setOpponentInfo: invalid playerNumber=" + playerNumber);
+            return;
+        }
+        opponentNames.put(playerNumber, username);
+        opponentWins.put(playerNumber, wins);
+    }
+
     public void updateOpponentKartChoice(int opponentNumber, int kartChoice) {
+        if (opponentNumber <= 0 || opponentNumber > 6) {
+            System.err.println("updateOpponentKartChoice: invalid opponentNumber=" + opponentNumber);
+            return;
+        }
+        if (kartChoice < 0 || kartChoice >= allOptionsKart.length) {
+            System.err.println("updateOpponentKartChoice: invalid kartChoice=" + kartChoice + " for opponent=" + opponentNumber);
+            return;
+        }
         int playerIndex = opponentNumber - 1;
         allDisplayedPlayerKarts[playerIndex] = allOptionsKart[kartChoice];
     }
 
+    private void drawOpponentNames(Graphics g) {
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Arial", Font.BOLD, 12));
+        // Draw small name near each player label
+        for (int i = 1; i <= 6; i++) {
+            String name = opponentNames.getOrDefault(i, "");
+            if (!name.isEmpty()) {
+                int x = switch (i) { case 1 -> 50; case 2 -> 241; case 3 -> 434; case 4 -> 48; case 5 -> 241; default -> 434; };
+                int y = switch (i) { case 1,2,3 -> 220; default -> 498; };
+                g.drawString(name, x, y);
+            }
+        }
+    }
+
     public void updateOpponentReadyState(int opponentNumber, boolean isReady) {
+        if (opponentNumber <= 0 || opponentNumber > 6) {
+            System.err.println("updateOpponentReadyState: invalid opponentNumber=" + opponentNumber);
+            return;
+        }
         int playerIndex = opponentNumber - 1;
         allDisplayedPlayerReadyStates[playerIndex] = (isReady) ? imageSymbolReady : imageSymbolNotReady;
     }
@@ -173,11 +231,19 @@ public class GameLobbyDisplay implements Display {
     }
 
     public void updateActiveOpponent(int opponentNumber) {
+        if (opponentNumber <= 0 || opponentNumber > 6) {
+            System.err.println("updateActiveOpponent: invalid opponentNumber=" + opponentNumber);
+            return;
+        }
         int playerIndex = opponentNumber - 1;
         allDisplayedPlayerLabels[playerIndex] = allPlayerLabelsActive[playerIndex];
     }
 
     public void updateInactiveOpponent(int opponentNumber) {
+        if (opponentNumber <= 0 || opponentNumber > 6) {
+            System.err.println("updateInactiveOpponent: invalid opponentNumber=" + opponentNumber);
+            return;
+        }
         int playerIndex = opponentNumber - 1;
         allDisplayedPlayerLabels[playerIndex] = allPlayerLabelsInactive[playerIndex];
         allDisplayedPlayerReadyStates[playerIndex] = imageSymbolReadyHidden;
@@ -236,7 +302,17 @@ public class GameLobbyDisplay implements Display {
     private List<Player> createOpponents() {
         List<Player> opponents = new ArrayList<>();
         for (Integer opponentNumber : connection.getOpponents()) {
+            if (opponentNumber == null) continue;
+            if (opponentNumber <= 0 || opponentNumber > 6) {
+                System.err.println("createOpponents: skipping invalid opponentNumber=" + opponentNumber);
+                continue;
+            }
             Player opponent = new Player(opponentNumber);
+            // Populate opponent player info (name and wins) from the connection
+            String name = connection.getOpponentName(opponentNumber);
+            int wins = connection.getOpponentWins(opponentNumber);
+            opponent.setName(name);
+            opponent.setWins(wins);
             opponents.add(opponent);
         }
         return opponents;

@@ -95,9 +95,16 @@ public class GameOverDisplay implements Display {
             // Close game-related operations and send the player to the menu.
             AudioManager.stopMusic();
             currentGame = null;
-            ServerManager.getHandler().endGame();
-            ServerManager.getHandler().terminateConnection();
-            baseDisplay.setCurrentDisplay(new MenuDisplay());
+            // Return player to the lobby so they can play again without re-login.
+            ServerHandler handler = ServerManager.getHandler();
+            if (handler != null) {
+                try {
+                    handler.endGame();
+                    // Request lobby data to re-enter lobby
+                    handler.requestLobbyData();
+                } catch (Exception ignored) {}
+            }
+            baseDisplay.setCurrentDisplay(new GameJoinDisplay());
         }
     }
 

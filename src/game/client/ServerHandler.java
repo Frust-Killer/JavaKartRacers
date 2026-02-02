@@ -26,6 +26,8 @@ public class ServerHandler implements Runnable {
     private int playerNumber;
     private int kartChoice;
     private int mapChoice;
+    private final Map<Integer, String> opponentNamesMap = new HashMap<>();
+    private final Map<Integer, Integer> opponentWinsMap = new HashMap<>();
 
     // Game-related instances.
     private Game activeGame;
@@ -49,6 +51,10 @@ public class ServerHandler implements Runnable {
     public int getMapChoice()                       { return mapChoice; }
     public List<Integer> getOpponents()             { return opponents; }
     public Map<Integer, Integer> getKartChoices()   { return chosenKarts; }
+
+    // Add accessors for opponent metadata
+    public String getOpponentName(int playerNumber) { return opponentNamesMap.getOrDefault(playerNumber, ""); }
+    public int getOpponentWins(int playerNumber) { return opponentWinsMap.getOrDefault(playerNumber, 0); }
 
     public void setGame(Game activeGame) {
         this.activeGame = activeGame;
@@ -110,6 +116,18 @@ public class ServerHandler implements Runnable {
 
         if (isConnectionSetupValid()) {
             connectionActive = true;
+
+            // Start a small heartbeat thread to prevent server pruning of active clients
+            Thread hb = new Thread(() -> {
+                while (connectionActive) {
+                    try {
+                        sendCommand("HEARTBEAT");
+                        Thread.sleep(5000);
+                    } catch (InterruptedException ignored) { break; }
+                }
+            });
+            hb.setDaemon(true);
+            hb.start();
 
             // On lance directement la boucle d'écoute. 
             // Les réponses à REQUEST_CONN_CHECK, PLAYER_COUNT, etc. 
@@ -181,7 +199,13 @@ public class ServerHandler implements Runnable {
     }
 
     private void respondToServerCommands() {
-        String[] messageData = messageFromServer.split(" ");
+        String[] messageData;
+        // Use a limited split for messages that may contain username fields so we don't over-split
+        if (messageFromServer.startsWith("RESPOND_PL_LOBBY_DATA") || messageFromServer.startsWith("OP_ADD")) {
+            messageData = messageFromServer.split(" ", 6);
+        } else {
+            messageData = messageFromServer.split(" ");
+        }
         String command = messageData[0];
 
         switch (command) {
@@ -189,8 +213,9 @@ public class ServerHandler implements Runnable {
             case "RESPOND_PLAYER_COUNT"     -> setServerFull(messageData);
             case "RESPOND_SERVER_STAGE"     -> setServerStage(messageData);
             case "RESPOND_PL_LOBBY_DATA"    -> updatePlayerLobbyData(messageData);
+            case "RESPOND_PL_LOBBY_DATA_FAILURE" -> displayErrorMessage("Server rejected lobby join: no available slots");
             case "REQUEST_START_GAME"       -> startGame(true);
-            case "OP_ADD"                   -> addOpponent(messageData);
+            case "PLAYER_JOINED"            -> handlePlayerJoined(messageData);
             case "OP_REMOVE"                -> removeOpponent(messageData);
             case "END_CONNECTION"           -> disconnectPlayer();
             case "UPDATE_OP_KART_CHOICE"    -> updateOpponentKartChoice(messageData);
@@ -233,11 +258,36 @@ public class ServerHandler implements Runnable {
         float speed = kart.getSpeed();
         float positionX = kart.getPosition().x;
         float positionY = kart.getPosition().y;
-        sendCommand("SEND_KART_DATA " + kartNumber + " " + rotation + " " + speed + " " + positionX + " " + positionY);
+        // Delta-send: only send when significant change from last sent
+        if (shouldSendKartUpdate(kartNumber, rotation, speed, positionX, positionY)) {
+            sendCommand("SEND_KART_DATA " + kartNumber + " " + rotation + " " + speed + " " + positionX + " " + positionY);
+            updateLastSentKart(kartNumber, rotation, speed, positionX, positionY);
+        }
+    }
+
+    // Simple per-kart last-sent state
+    private final Map<Integer, Float> lastSentRotation = new HashMap<>();
+    private final Map<Integer, Float> lastSentSpeed = new HashMap<>();
+    private final Map<Integer, Float> lastSentPosX = new HashMap<>();
+    private final Map<Integer, Float> lastSentPosY = new HashMap<>();
+
+    private boolean shouldSendKartUpdate(int kartNumber, float rotation, float speed, float posX, float posY) {
+        float eps = 0.01f; // threshold
+        Float lr = lastSentRotation.get(kartNumber);
+        Float ls = lastSentSpeed.get(kartNumber);
+        Float lx = lastSentPosX.get(kartNumber);
+        Float ly = lastSentPosY.get(kartNumber);
+        if (lr == null || ls == null || lx == null || ly == null) return true;
+        return Math.abs(lr - rotation) > eps || Math.abs(ls - speed) > eps || Math.abs(lx - posX) > eps || Math.abs(ly - posY) > eps;
+    }
+
+    private void updateLastSentKart(int kartNumber, float rotation, float speed, float posX, float posY) {
+        lastSentRotation.put(kartNumber, rotation);
+        lastSentSpeed.put(kartNumber, speed);
+        lastSentPosX.put(kartNumber, posX);
+        lastSentPosY.put(kartNumber, posY);
     }
     
-    
-
     public void clearLocalLobby() {
         chosenKarts.clear();
     }
@@ -259,6 +309,11 @@ public class ServerHandler implements Runnable {
 
     private void updatePlayerLobbyData(String[] data) {
         try {
+            // defend against short messages
+            if (data.length < 4) {
+                System.err.println("RESPOND_PL_LOBBY_DATA too short, ignoring: " + Arrays.toString(data));
+                return;
+            }
             playerNumber = Integer.parseInt(data[1]);
             kartChoice = Integer.parseInt(data[2]);
             mapChoice = Integer.parseInt(data[3]);
@@ -268,14 +323,33 @@ public class ServerHandler implements Runnable {
             int wins = 0;
             try { if (data.length > 5) wins = Integer.parseInt(data[5]); } catch (NumberFormatException ignored) {}
 
+            // Defensive checks: ensure playerNumber and choices are within expected ranges
+            if (playerNumber <= 0 || playerNumber > 6) {
+                System.err.println("Ignored RESPOND_PL_LOBBY_DATA with invalid playerNumber: " + playerNumber);
+                return;
+            }
+            if (kartChoice < 0 || kartChoice >= 7) {
+                System.err.println("Ignored RESPOND_PL_LOBBY_DATA with invalid kartChoice: " + kartChoice);
+                return;
+            }
+            if (mapChoice < 0) {
+                System.err.println("Ignored RESPOND_PL_LOBBY_DATA with invalid mapChoice: " + mapChoice);
+                return;
+            }
+
             chosenKarts.put(playerNumber, kartChoice);
 
             if (lobbyDisplay != null) {
                 lobbyDisplay.setLocalPlayerInfo(username.replaceAll("_", " "), wins);
             }
 
-            lobbyDisplay.prepareLobbyForPlayer();
-            joinDisplay.sendPlayerToLobby();
+            // safe call
+            if (joinDisplay != null) {
+                lobbyDisplay.prepareLobbyForPlayer();
+                joinDisplay.sendPlayerToLobby();
+            } else {
+                System.err.println("updatePlayerLobbyData: joinDisplay is null, cannot proceed");
+            }
         }
         catch (NumberFormatException e) {
             System.err.println("Type conversion error when updating the player's lobby data: " + e.getMessage());
@@ -338,32 +412,36 @@ public class ServerHandler implements Runnable {
         }
     }
 
-    private void addOpponent(String[] data) {
+    private void handlePlayerJoined(String[] data) {
+        // Expected: PLAYER_JOINED <playerNumber> <kartChoice> <ready> <username> <wins>
         if (lobbyDisplay == null) return;
         try {
+            if (data.length < 6) {
+                System.err.println("PLAYER_JOINED too short, ignoring: " + Arrays.toString(data));
+                return;
+            }
             int opponentNumber = Integer.parseInt(data[1]);
-            opponents.add(opponentNumber);
-            sendCommand("REQUEST_KART_CHOICE " + opponentNumber);
+            if (opponentNumber <= 0 || opponentNumber > 6) {
+                System.err.println("Ignored PLAYER_JOINED with invalid opponent number: " + opponentNumber);
+                return;
+            }
+            int kartChoice = Integer.parseInt(data[2]);
+            boolean ready = Boolean.parseBoolean(data[3]);
+            String username = data[4].replaceAll("_", " ");
+            int wins = 0;
+            try { wins = Integer.parseInt(data[5]); } catch (NumberFormatException ignored) {}
+
+            if (!opponents.contains(opponentNumber)) opponents.add(opponentNumber);
+            chosenKarts.put(opponentNumber, kartChoice);
             lobbyDisplay.updateActiveOpponent(opponentNumber);
+            lobbyDisplay.updateOpponentKartChoice(opponentNumber, kartChoice);
+            lobbyDisplay.updateOpponentReadyState(opponentNumber, ready);
+            lobbyDisplay.setOpponentInfo(opponentNumber, username, wins);
+            opponentNamesMap.put(opponentNumber, username);
+            opponentWinsMap.put(opponentNumber, wins);
         }
         catch (NumberFormatException e) {
-            System.err.println("Type conversion error when adding opponent: " + e.getMessage());
-        }
-    }
-
-    private void removeOpponent(String[] data) {
-        try {
-            int opponentNumber = Integer.parseInt(data[1]);
-            opponents.remove((Integer) opponentNumber);
-            chosenKarts.remove(opponentNumber);
-
-            if (isGameActive) activeGame.removeOpponent(opponentNumber);
-            else lobbyDisplay.updateInactiveOpponent(opponentNumber);
-
-            if (opponents.isEmpty() && isGameActive) endGameNoOpponents();
-        }
-        catch (NumberFormatException e) {
-            System.err.println("Type conversion error when removing an opponent: " + e.getMessage());
+            System.err.println("Type conversion error when handling PLAYER_JOINED: " + e.getMessage());
         }
     }
 
@@ -438,5 +516,20 @@ public class ServerHandler implements Runnable {
         sendCommand("REQUEST_PLAYER_COUNT");
         sendCommand("REQUEST_SERVER_STAGE");
         sendCommand("REQUEST_PL_LOBBY_DATA");
+    }
+
+    private void removeOpponent(String[] data) {
+        try {
+            int opponentNumber = Integer.parseInt(data[1]);
+            opponents.remove((Integer) opponentNumber);
+            chosenKarts.remove(opponentNumber);
+
+            if (isGameActive && activeGame != null) activeGame.removeOpponent(opponentNumber);
+            else if (lobbyDisplay != null) lobbyDisplay.updateInactiveOpponent(opponentNumber);
+            if (lobbyDisplay != null) lobbyDisplay.setOpponentInfo(opponentNumber, "", 0);
+        }
+        catch (NumberFormatException e) {
+            System.err.println("Type conversion error when removing an opponent: " + e.getMessage());
+        }
     }
 }
