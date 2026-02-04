@@ -9,6 +9,7 @@ C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\GameJoi
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\GameLobbyDisplay.java
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\GameOptions.java
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\GameOverDisplay.java
+C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\LoadingDisplay.java
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\GamePauseDisplay.java
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\Kart.java
 C:\Users\LENOVO\OneDrive\Documents\GitHub\JavaKartRacers\src\game\client\Main.java

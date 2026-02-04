@@ -193,8 +193,12 @@ public class GameDisplay implements Display {
     }
 
     private void updateOtherKarts(Graphics g) {
-        for (Player opponent : opponents) {
+        if (opponents == null) return;
+        // iterate a snapshot to avoid concurrent modification if server removes opponents during rendering
+        for (Player opponent : new ArrayList<>(opponents)) {
+            if (opponent == null) continue;
             Kart kart = opponent.getKart();
+            if (kart == null) continue;
             activeGame.checkCollisionWithOtherKart(kart);
             drawSingleKart(g, kart);
         }
@@ -216,47 +220,15 @@ public class GameDisplay implements Display {
     private final Map<Integer, List<Particle>> kartParticles = new HashMap<>();
 
     private void drawSingleKart(Graphics g, Kart kart) {
-        kart.updatePosition();
-        kart.updateImage();
-        // If kart is flashing due to a recent collision, draw with alternating transparency
-        if (kart.isFlashing()) {
-            long elapsed = System.currentTimeMillis() - kart.getFlashStart();
-            int alpha = ((elapsed / 200) % 2 == 0) ? 255 : 100; // flash every 200ms
-            Graphics2D g2 = (Graphics2D) g.create();
-            g2.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha / 255f));
-            kart.getImage().paintIcon(baseDisplay, g2, (int) kart.getPosition().x, (int) kart.getPosition().y);
-            g2.dispose();
-
-            // Progress bar showing remaining slowdown
-            long remainingMs = kart.getSlowUntil() - System.currentTimeMillis();
-            if (remainingMs < 0) remainingMs = 0;
-            float fraction = 1.0f - (float) remainingMs / (float) Kart.COLLISION_EFFECT_MS;
-            if (fraction < 0f) fraction = 0f; if (fraction > 1f) fraction = 1f;
-            int barWidth = 40;
-            int barHeight = 6;
-            int x = (int) kart.getPosition().x;
-            int y = (int) kart.getPosition().y + kart.getImage().getIconHeight() + 4;
-
-            // Draw background
-            g.setColor(new Color(0,0,0,160));
-            g.fillRect(x, y, barWidth, barHeight);
-            // Draw filled fraction (green -> red)
-            Color fill = new Color((int) (255 * (1-fraction)), (int) (255 * fraction), 0);
-            g.setColor(fill);
-            g.fillRect(x+1, y+1, (int) ((barWidth-2) * fraction), barHeight-2);
-
-            // Spawn particles on initial flash start
-            List<Particle> particles = kartParticles.computeIfAbsent(kart.getKartNumber(), k -> new ArrayList<>());
-            if (particles.isEmpty() && elapsed < 200) {
-                spawnParticlesForKart(kart, 12);
-            }
-            // Update and draw particles
-            updateAndDrawParticles(g, kart, particles);
-
-        } else {
-            kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
-            // Clear particles if any
-            kartParticles.remove(kart.getKartNumber());
+        if (kart == null) return;
+        try {
+            kart.updatePosition();
+            kart.updateImage();
+            ImageIcon img = kart.getImage();
+            if (img != null) img.paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+        } catch (Exception e) {
+            // Protect UI from exceptions in kart drawing so a bad kart state doesn't freeze UI
+            System.err.println("Error drawing kart on GameDisplay: " + e.getMessage());
         }
     }
 
@@ -320,7 +292,7 @@ public class GameDisplay implements Display {
 
         // Player lap area, lower left.
         g.fillRect(0, 600, 189, 50);
-        ImageIcon playerLap = lapImages[activeGame.getCurrentLap()-1];
+        ImageIcon playerLap = lapImages[Math.max(0, Math.min(lapImages.length-1, activeGame.getCurrentLap()-1))];
         playerLap.paintIcon(baseDisplay, g, 0, 600);
 
         // Game time area, top central.
@@ -330,22 +302,31 @@ public class GameDisplay implements Display {
         g.drawString(activeGame.getGameTimeFormatted(), 386, 36);
 
         // Display an arrow above the player's head for easier identification.
-        playerPointer.paintIcon(baseDisplay, g, (int) mainPlayerKart.getPosition().x, (int) mainPlayerKart.getPosition().y);
+        if (mainPlayerKart != null && playerPointer != null) {
+            ImageIcon pointer = playerPointer;
+            pointer.paintIcon(baseDisplay, g, (int) mainPlayerKart.getPosition().x, (int) mainPlayerKart.getPosition().y);
+        }
 
         // Draw opponent names above their karts
         g.setColor(Color.WHITE);
         g.setFont(new Font("Arial", Font.BOLD, 12));
-        for (Player opponent : opponents) {
-            Kart k = opponent.getKart();
-            String name = opponent.getName();
-            if (name == null || name.isEmpty()) continue;
-            int x = (int) k.getPosition().x;
-            int y = (int) k.getPosition().y - 10; // above kart
-            g.drawString(name, x, y);
+        if (opponents != null) {
+            for (Player opponent : new ArrayList<>(opponents)) {
+                if (opponent == null) continue;
+                Kart k = opponent.getKart();
+                if (k == null) continue;
+                String name = opponent.getName();
+                if (name == null || name.isEmpty()) continue;
+                int x = (int) k.getPosition().x;
+                int y = (int) k.getPosition().y - 10; // above kart
+                g.drawString(name, x, y);
+            }
         }
 
-        // Draw nitro bars for players
-        drawNitroBars(g);
+        // Draw nitro bar for main player only (guard against null)
+        if (mainPlayer != null && mainPlayer.getKart() != null) {
+            drawNitroBars(g);
+        }
     }
 
     public void sendPlayerToMenu() {

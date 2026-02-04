@@ -74,6 +74,8 @@ public class Game {
    
 
     public void startGameTimer() {
+        // Reset nitro for all players when a new race starts
+        resetNitroForAll();
         gameTimer.start();
     }
 
@@ -98,6 +100,8 @@ public class Game {
         gameEndType = RACE_WON;
         gameEndReason = "Player " + winner.getPlayerNumber() + " has won the game!";
         ServerManager.getHandler().raceWon();
+        // Reset nitro at end of game to prepare for next race
+        resetNitroForAll();
         showLocalWin(winner);
     }
 
@@ -125,6 +129,8 @@ public class Game {
         } else {
             gameEndReason = "Player " + winnerName + " (" + winnerNumber + ") has won the game!";
         }
+        // Ensure nitro reset at end
+        resetNitroForAll();
         BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(this));
     }
 
@@ -181,6 +187,8 @@ public class Game {
         gameTimer.stop();
         gameEndType = NO_OPPONENTS;
         gameEndReason = "No opponents left in the race!";
+        // Reset nitro at end
+        resetNitroForAll();
         BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(this));
     }
 
@@ -240,5 +248,24 @@ public class Game {
             gameTimeFormatted = gameTimeInMinutes + ":" + gameTimeInSeconds;
         }
         return gameTimeFormatted;
+    }
+
+    // NEW: Reset nitro for all players (safe, null-checked)
+    public void resetNitroForAll() {
+        try {
+            if (opponents != null) {
+                for (Player p : opponents) {
+                    if (p == null) continue;
+                    Kart k = p.getKart();
+                    if (k != null) k.resetNitro();
+                }
+            }
+            if (mainPlayer != null) {
+                Kart mk = mainPlayer.getKart();
+                if (mk != null) mk.resetNitro();
+            }
+        } catch (Exception e) {
+            System.err.println("Error resetting nitro for players: " + e.getMessage());
+        }
     }
 }

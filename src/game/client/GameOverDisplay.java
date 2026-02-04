@@ -5,6 +5,7 @@ import java.awt.*;
 import java.util.List;
 import java.util.Objects;
 import java.util.Collections;
+import java.util.ArrayList;
 
 /**
  * The {@code GameOverDisplay} class is a concrete implementation
@@ -33,11 +34,17 @@ public class GameOverDisplay implements Display {
     private Game currentGame;
     private final List<Player> playersInGame;
 
+    // When server asks the client to display a game-over without a local Game object
+    // we store the alternate end type and reason here and draw them in update().
+    private Integer altEndType = null;
+    private String altReason = null;
+
     // Constructor.
     public GameOverDisplay(Game currentGame) {
         baseDisplay.clearComponents();
         this.currentGame = currentGame;
-        playersInGame = currentGame.getOpponents();
+        // defensive copy so the UI won't be affected if the game's opponent list changes concurrently
+        playersInGame = new ArrayList<>(currentGame.getOpponents());
         loadImages();
         addDisplayComponents();
         AudioManager.stopMusic();
@@ -52,18 +59,16 @@ public class GameOverDisplay implements Display {
         baseDisplay.clearComponents();
         this.currentGame = null;
         this.playersInGame = Collections.emptyList();
+        // Store the alternate reason and end type and draw in update() — avoid creating JLabels which may duplicate
+        this.altEndType = endType;
+        this.altReason = reason;
         // minimal image setup
         try {
             returnToMenu = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/buttonMainMenu.png")));
         } catch (Exception e) {
             returnToMenu = null;
         }
-        // Add labels directly to baseDisplay so the button is visible
-        if (endType == RACE_WON) baseDisplay.addLabel("YOU WON!!", 400, 80, 200, 150, Color.WHITE, 48);
-        else if (endType == RACE_LOST) {
-            baseDisplay.addLabel("YOU LOST", 400, 80, 200, 140, Color.RED, 48);
-            if (reason != null && !reason.isEmpty()) baseDisplay.addLabel(reason, 500, 25, 175, 220, Color.white, 20);
-        }
+        // add only the return button here — drawing will be done in update()
         returnToMenuButton = baseDisplay.addButton(returnToMenu, 354, 500);
         AudioManager.stopMusic();
     }
@@ -71,8 +76,10 @@ public class GameOverDisplay implements Display {
     private void loadImages() {
         try {
             returnToMenu = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/buttonMainMenu.png")));
-            gameOverBackground = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/bg/gameOverBackground" + currentGame.getGameEndType() + ".png")));
-            racetrackBackground = currentGame.getRacetrack().getImage();
+            if (currentGame != null) {
+                gameOverBackground = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/bg/gameOverBackground" + currentGame.getGameEndType() + ".png")));
+                racetrackBackground = currentGame.getRacetrack().getImage();
+            }
         }
         catch (NullPointerException e) {
             System.err.println("Failed to locate a necessary image file.");
@@ -80,29 +87,25 @@ public class GameOverDisplay implements Display {
     }
 
     private void addDisplayComponents() {
-        baseDisplay.addLabel(currentGame.getGameEndReason(), 500, 25, 175, 400, Color.white, 20);
-        baseDisplay.addLabel("Time: " + currentGame.getGameTimeFormatted(), 500, 25, 175, 450, Color.white, 20);
-        // Add prominent winner/loser labels via baseDisplay so they appear above other UI elements
-        int endType = currentGame.getGameEndType();
-        if (endType == RACE_WON) {
-            baseDisplay.addLabel("YOU WON!!", 400, 80, 200, 150, Color.WHITE, 48);
-        } else if (endType == RACE_LOST) {
-            baseDisplay.addLabel("YOU LOST", 400, 80, 200, 140, Color.RED, 48);
-            baseDisplay.addLabel(currentGame.getGameEndReason(), 500, 25, 175, 220, Color.white, 20);
+        // Keep the time label as a component (informational)
+        if (currentGame != null) {
+            baseDisplay.addLabel("Time: " + currentGame.getGameTimeFormatted(), 500, 25, 175, 450, Color.white, 20);
         }
+        // The big winner/loser messages are drawn directly in update(), avoid duplicating them as components
+        if (returnToMenu == null) loadImages();
         returnToMenuButton = baseDisplay.addButton(returnToMenu, 354, 500);
     }
 
     @Override
     public void update(Graphics g) {
-        // If currentGame is available, draw race background and karts; otherwise rely on baseDisplay labels
+        // If currentGame is available, draw race background and karts; otherwise rely on baseDisplay labels or altReason
         if (currentGame != null) {
             if (racetrackBackground != null) racetrackBackground.paintIcon(baseDisplay, g, 0, 0);
             updatePlayerKart(g);
             updateOtherKarts(g);
             if (gameOverBackground != null) gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
 
-            // Draw overlay text depending on end type
+            // Draw overlay text depending on end type (draw once in paint to avoid duplicate JLabels)
             int endType = currentGame.getGameEndType();
             g.setColor(Color.WHITE);
             if (endType == RACE_WON) {
@@ -118,45 +121,93 @@ public class GameOverDisplay implements Display {
             }
         } else {
             if (gameOverBackground != null) gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
-            // baseDisplay labels handle the text in alternate constructor
+            // If we have an alternate reason supplied by the server, draw it here (single source of truth)
+            if (altEndType != null) {
+                g.setColor(Color.WHITE);
+                if (altEndType == RACE_WON) {
+                    g.setFont(new Font("Arial", Font.BOLD, 72));
+                    g.drawString("YOU WON!!", 250, 200);
+                } else if (altEndType == RACE_LOST) {
+                    g.setFont(new Font("Arial", Font.BOLD, 60));
+                    g.setColor(Color.RED);
+                    g.drawString("YOU LOST", 270, 180);
+                    if (altReason != null && !altReason.isEmpty()) {
+                        g.setColor(Color.WHITE);
+                        g.setFont(new Font("Arial", Font.BOLD, 20));
+                        g.drawString(altReason, 175, 220);
+                    }
+                }
+            }
+            // baseDisplay labels handle text added via other constructors if any — but we avoid adding duplicates here
         }
     }
 
     private void updatePlayerKart(Graphics g) {
+        if (currentGame == null) return;
+        if (currentGame.getMainPlayer() == null) return;
         Kart mainKart = currentGame.getMainPlayer().getKart();
+        if (mainKart == null) return;
         if (mainKart.isMoving()) mainKart.reduceSpeed();
         drawSingleKart(g, mainKart);
     }
 
     private void updateOtherKarts(Graphics g) {
+        if (playersInGame == null) return;
         for (Player player : playersInGame) {
+            if (player == null) continue;
             Kart kart = player.getKart();
+            if (kart == null) continue;
             drawSingleKart(g, kart);
         }
     }
 
     private void drawSingleKart(Graphics g, Kart kart) {
-        kart.updatePosition();
-        kart.updateImage();
-        kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+        if (kart == null) return;
+        try {
+            kart.updatePosition();
+            kart.updateImage();
+            if (kart.getImage() != null) kart.getImage().paintIcon(baseDisplay, g, (int) kart.getPosition().x, (int) kart.getPosition().y);
+        } catch (Exception e) {
+            // Protect UI from exceptions in kart drawing so a bad kart state doesn't freeze UI
+            System.err.println("Error drawing kart on GameOverDisplay: " + e.getMessage());
+        }
     }
 
     @Override
     public void buttonHandler(Object button) {
         if (button == returnToMenuButton) {
-            // Close game-related operations and send the player to the menu.
+            // Stop music and clear local game reference
             AudioManager.stopMusic();
             currentGame = null;
-            // Return player to the lobby so they can play again without re-login.
+
+            // Attempt to immediately tell the handler that the game ended so it stops sending kart updates
             ServerHandler handler = ServerManager.getHandler();
             if (handler != null) {
                 try {
-                    handler.endGame();
-                    // Request lobby data to re-enter lobby
-                    handler.requestLobbyData();
+                    handler.endGame(); // quick local state update (non-blocking)
                 } catch (Exception ignored) {}
             }
-            baseDisplay.setCurrentDisplay(new GameLobbyDisplay());
+
+            // Show loading display immediately
+            BaseDisplay.getInstance().setCurrentDisplay(new LoadingDisplay());
+
+            // Perform any remaining network cleanup on a background thread so the UI stays responsive
+            new Thread(() -> {
+                boolean success = false;
+                try {
+                    if (handler != null) {
+                        handler.requestLobbyData();
+                    }
+                    success = true;
+                } catch (Exception ignored) {}
+
+                // After network ops complete (or fail), switch to the lobby on the EDT
+                javax.swing.SwingUtilities.invokeLater(() -> {
+                    // Replace loading display with the lobby regardless of success to keep UX responsive
+                    BaseDisplay.getInstance().setCurrentDisplay(new GameLobbyDisplay());
+                    // Optionally, we could show an error pop-up if !success
+                });
+            }, "GameOver-ReturnToMenu-Net").start();
         }
     }
 

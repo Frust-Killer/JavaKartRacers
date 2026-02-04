@@ -271,6 +271,8 @@ public class ServerHandler implements Runnable {
     }
 
     public void sendKart(Kart kart) {
+        if (!isGameActive) return; // don't send kart updates if game is not active
+        if (kart == null) return;
         int kartNumber = kart.getKartNumber();
         float rotation = kart.getRotation();
         float speed = kart.getSpeed();
@@ -358,15 +360,18 @@ public class ServerHandler implements Runnable {
             chosenKarts.put(playerNumber, kartChoice);
 
             if (lobbyDisplay != null) {
+                // Prepare the lobby UI using the connection data
                 lobbyDisplay.setLocalPlayerInfo(username.replaceAll("_", " "), wins);
-            }
-
-            // safe call
-            if (joinDisplay != null) {
+                lobbyDisplay.prepareLobbyForPlayer();
+                // Switch to the lobby immediately
+                javax.swing.SwingUtilities.invokeLater(() -> BaseDisplay.getInstance().setCurrentDisplay(lobbyDisplay));
+            } else if (joinDisplay != null) {
+                // Legacy flow: joinDisplay will handle switching
+                lobbyDisplay.setLocalPlayerInfo(username.replaceAll("_", " "), wins);
                 lobbyDisplay.prepareLobbyForPlayer();
                 joinDisplay.sendPlayerToLobby();
             } else {
-                System.err.println("updatePlayerLobbyData: joinDisplay is null, cannot proceed");
+                System.err.println("updatePlayerLobbyData: no display to show lobby (joinDisplay and lobbyDisplay are null)");
             }
         }
         catch (NumberFormatException e) {
@@ -507,8 +512,10 @@ public class ServerHandler implements Runnable {
     }
 
     private synchronized void sendCommand(String command) {
-        if (outputStreamToServer != null) {
+        if (outputStreamToServer != null && connectionActive) {
             outputStreamToServer.println(command); // .println ajoute le \n automatiquement
+        } else {
+            System.err.println("sendCommand suppressed; no active output stream or connection inactive: " + command);
         }
     }
 
@@ -524,12 +531,20 @@ public class ServerHandler implements Runnable {
 
     // Modifie aussi requestLobbyData pour garantir l'ordre
     public void requestLobbyData() {
-        // 1. Initialiser le lobby localement
+        // 1. Initialize the lobby locally. If joinDisplay is present, it will create and assign the lobby.
         if (joinDisplay != null) {
             joinDisplay.createLocalLobby();
+        } else {
+            // If there's no joinDisplay (user didn't come through the join screen), create a lobby UI now
+            try {
+                GameLobbyDisplay autoLobby = new GameLobbyDisplay();
+                setLobbyDisplay(autoLobby);
+            } catch (Exception e) {
+                System.err.println("Failed to create local lobby UI: " + e.getMessage());
+            }
         }
-        
-        // 2. Envoyer les commandes d'initialisation dans l'ordre
+
+        // 2. Send initialization commands in order
         sendCommand("REQUEST_CONN_CHECK");
         sendCommand("REQUEST_PLAYER_COUNT");
         sendCommand("REQUEST_SERVER_STAGE");
