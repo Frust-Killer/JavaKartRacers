@@ -1,4 +1,4 @@
-JavaKartRacers — Project Report
+JavaKartRacers — README!!
 ===============================
 
 Author: Team JavaKartRacers (FRU, FAVOUR, HAPPI, KAPETE, KIMBI)
