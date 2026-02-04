@@ -303,6 +303,8 @@ Sample logs
 
 - <img width="1346" height="784" alt="data" src="https://github.com/user-attachments/assets/72bb413c-f41c-497e-a9bd-40fa1ad0f9aa" />
 
+- <img width="1121" height="850" alt="serverlog" src="https://github.com/user-attachments/assets/e97fc2c4-c457-4f08-8dcf-e1fa17cbce5f" />
+
 - <img width="1896" height="822" alt="image" src="https://github.com/user-attachments/assets/d99ad1d9-ed33-482a-b817-cf0f98365511" />
 
 
