@@ -1,7 +1,7 @@
 JavaKartRacers — Project Report
 ===============================
 
-Author: Team JavaKartRacers
+Author: Team JavaKartRacers (FRU, FAVOUR, HAPPI, KAPETE, KIMBI)
 Date: 2026-02-04
 Version: 2.0
 
@@ -280,6 +280,22 @@ Paste short server log excerpts that correlate to actions. Example fragments you
 [Client] Received RESPOND_PL_LOBBY_DATA and switched to GameLobbyDisplay
 ```
 
+Suggested screenshots filenames:
+- docs/screenshots/menu.png
+- docs/screenshots/lobby.png
+- docs/screenshots/findGame.png
+- docs/screenshots/race_nitro_after.png
+- docs/screenshots/gamepause.png
+- docs/screenshots/race_nitro_before.png
+- docs/screenshots/gameover.png
+
+Sample logs
+-----------
+- docs/screenshots/data.png
+- docs/screenshots/serverlog.png
+- docs/screenshots/clientlog.png
+
+- docs/screenshots/race_nitro_before.png
 Troubleshooting & known issues
 -----------------------------
 - If audio fails, make sure WAV files are present and that your JDK supports the format; switching to classpath loading is recommended before packaging.
