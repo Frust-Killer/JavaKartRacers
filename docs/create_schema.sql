@@ -1,0 +1,16 @@
+CREATE DATABASE IF NOT EXISTS javakart_db;
+USE javakart_db;
+
+CREATE TABLE players (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  username VARCHAR(100) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  total_wins INT DEFAULT 0
+);
+
+CREATE TABLE races (
+  race_id INT AUTO_INCREMENT PRIMARY KEY,
+  winner_id INT,
+  race_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (winner_id) REFERENCES players(id) ON DELETE SET NULL
+);
