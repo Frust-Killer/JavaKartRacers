@@ -283,7 +283,8 @@ Paste short server log excerpts that correlate to actions. Example fragments you
 Suggested screenshots filenames:
 - <img width="1058" height="855" alt="menu" src="https://github.com/user-attachments/assets/14c2b8bc-a1e1-42e6-8130-380027318122" />
 
-- <img width="1067" height="855" alt="lobby" src="https://github.com/user-attachments/assets/77050937-c444-4d23-9fd6-941fa9076c4d" />
+- <img width="1053" height="842" alt="Screenshot 2026-02-04 162933" src="https://github.com/user-attachments/assets/d66ac689-1468-43a7-b352-95581ed4db52" />
+
 
 - <img width="1061" height="848" alt="findGame" src="https://github.com/user-attachments/assets/f9604743-4191-4788-9475-82ae2202f9e7" />
 
