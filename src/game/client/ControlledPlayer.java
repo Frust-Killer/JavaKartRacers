@@ -13,12 +13,14 @@ public class ControlledPlayer extends Player {
     private int keyBackward;
     private int keyLeft;
     private int keyRight;
+    private int keyNitro; // added nitro key binding
 
     // Property access methods.
     public int getKeyForward()  { return keyForward; }
     public int getKeyBackward() { return keyBackward; }
     public int getKeyLeft()     { return keyLeft; }
     public int getKeyRight()    { return keyRight; }
+    public int getKeyNitro()    { return keyNitro; }
 
     // Constructor.
     public ControlledPlayer(int playerNumber) {
@@ -33,5 +35,6 @@ public class ControlledPlayer extends Player {
         keyBackward = KeyEvent.VK_DOWN;
         keyLeft = KeyEvent.VK_LEFT;
         keyRight = KeyEvent.VK_RIGHT;
+        keyNitro = KeyEvent.VK_N; // default nitro key
     }
 }

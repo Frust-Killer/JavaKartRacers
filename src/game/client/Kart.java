@@ -59,11 +59,22 @@ public class Kart {
     private float slipSavedSpeed = 0f;
     private float slipSpinRate = 8f; // degrees per update
 
+    // Nitro (boost) state
+    private float nitroCapacity = 100f; // starts full (percentage)
+    private boolean nitroActive = false;
+    private boolean nitroDepleted = false; // when true, nitro won't recharge automatically
+    private static final float NITRO_DEPLETION_RATE = 40f; // percent per second
+    private static final float NITRO_RECHARGE_RATE = 10f; // percent per second when not in use
+    private static final float NITRO_BOOST_MULTIPLIER = 1.8f; // speed multiplier during nitro
+    private long lastNitroUpdate = System.currentTimeMillis();
+
     // Property access methods.
     public boolean isFlashing() { return System.currentTimeMillis() < slowUntil; }
     public long getFlashStart() { return flashStart; }
     public boolean isSlipping() { return System.currentTimeMillis() < slipUntil; }
     public long getSlipUntil() { return slipUntil; }
+    public float getNitroCapacity() { return nitroCapacity; }
+    public boolean isNitroActive() { return nitroActive; }
     public Player getOwner()            { return owner; }
     public float getSpeed()             { return speed; }
     public float getRotation()          { return rotation; }
@@ -132,15 +143,44 @@ public class Kart {
 
     public void updatePosition() {
         // Compute movement using direction multipliers and current speed
-        float deltaX = getDirectionMultiplierX() * speed;
-        float deltaY = getDirectionMultiplierY() * speed;
+        // Update nitro depletion/recharge first
+        long now = System.currentTimeMillis();
+        float deltaSec = (now - lastNitroUpdate) / 1000f;
+        lastNitroUpdate = now;
+        if (nitroActive) {
+            nitroCapacity -= NITRO_DEPLETION_RATE * deltaSec;
+            if (nitroCapacity <= 0f) {
+                nitroCapacity = 0f;
+                nitroActive = false; // stop when empty
+                nitroDepleted = true; // mark as depleted so it doesn't auto-recharge
+            }
+        } else {
+            // recharge slowly when not active, but only if not depleted
+            if (!nitroDepleted) {
+                nitroCapacity += NITRO_RECHARGE_RATE * deltaSec;
+                if (nitroCapacity > 100f) nitroCapacity = 100f;
+            }
+        }
+
+        // If nitro is active, temporarily increase effective movement
+        float effectiveSpeed = speed;
+        if (nitroActive) effectiveSpeed = speed * NITRO_BOOST_MULTIPLIER;
+
+        // If nitro is active and the kart is stationary, give a small initial push
+        if (nitroActive && speed <= 0f) {
+            // apply a small instantaneous bump so nitro is noticeable even when not accelerating
+            speed = Math.min(SPEED_MAX, ACCELERATION * 6f);
+            effectiveSpeed = speed * NITRO_BOOST_MULTIPLIER;
+        }
+
+        float deltaX = getDirectionMultiplierX() * effectiveSpeed;
+        float deltaY = getDirectionMultiplierY() * effectiveSpeed;
         float newPositionX = position.x + deltaX;
         float newPositionY = position.y + deltaY;
 
         hitBox.setLocation((int) newPositionX + HIT_BOX_BUFFER,(int) newPositionY + HIT_BOX_BUFFER);
 
         // If a scheduled collision start time has arrived, start the collision effect
-        long now = System.currentTimeMillis();
         if (pendingCollisionStart > 0 && now >= pendingCollisionStart) {
             // Start collision effect now using the scheduled start and savedOriginalSpeed
             onKartCollision(pendingCollisionStart, savedOriginalSpeed);
@@ -157,14 +197,14 @@ public class Kart {
                 float progress = (float) elapsed / (float) COLLISION_EFFECT_MS;
                 if (progress < 0f) progress = 0f;
                 if (progress > 1f) progress = 1f;
-                float effectiveSpeed = savedOriginalSpeed * progress;
+                float effectiveSpeed2 = savedOriginalSpeed * progress;
                 // Move according to direction and effective speed (don't use current speed which is set to 0 on collision)
-                position.setLocation(position.x + (getDirectionMultiplierX() * effectiveSpeed), position.y + (getDirectionMultiplierY() * effectiveSpeed));
+                position.setLocation(position.x + (getDirectionMultiplierX() * effectiveSpeed2), position.y + (getDirectionMultiplierY() * effectiveSpeed2));
                 // continue without changing the stored speed directly
-            } else {
-                position.setLocation(newPositionX, newPositionY);
-            }
-        }
+             } else {
+                position.setLocation(position.x + (getDirectionMultiplierX() * effectiveSpeed), position.y + (getDirectionMultiplierY() * effectiveSpeed));
+             }
+         }
 
         // If slipping due to banana, override rotation and movement accordingly
         if (now < slipUntil) {
@@ -285,6 +325,32 @@ public class Kart {
         // Strong deceleration
         speed -= ACCELERATION * 2;
         if (speed < SPEED_MIN) speed = SPEED_MIN;
+    }
+
+    // Nitro control
+    public void startNitro() {
+        if (!nitroDepleted && nitroCapacity > 5f) {
+            nitroActive = true;
+            AudioManager.playSound("NITRO_SOUND", false);
+            lastNitroUpdate = System.currentTimeMillis();
+            // Give a small initial boost if currently stopped so the player notices the effect
+            if (speed <= 0f) {
+                speed = Math.min(SPEED_MAX, ACCELERATION * 6f);
+            }
+        }
+    }
+
+    public void stopNitro() {
+        nitroActive = false;
+        lastNitroUpdate = System.currentTimeMillis();
+    }
+
+    // Allow external reset (e.g., new race)
+    public void resetNitro() {
+        nitroCapacity = 100f;
+        nitroDepleted = false;
+        nitroActive = false;
+        lastNitroUpdate = System.currentTimeMillis();
     }
 
     public void updateSpeed(int speedDirection) {

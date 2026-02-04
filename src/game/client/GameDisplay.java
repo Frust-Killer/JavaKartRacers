@@ -36,6 +36,7 @@ public class GameDisplay implements Display {
     private int keyRight;
     private int keyForward;
     private int keyBackward;
+    private int keyNitro; // added nitro key
 
     // Player control states.
     private boolean keyForwardActive;
@@ -43,6 +44,7 @@ public class GameDisplay implements Display {
     private boolean keyLeftActive;
     private boolean keyRightActive;
     private boolean keyBrakeActive; // space bar brake
+    private boolean keyNitroActive; // N key nitro
 
     // Images.
     private ImageIcon wrongWayMessage;
@@ -69,12 +71,6 @@ public class GameDisplay implements Display {
 
     private final ServerHandler connection = ServerManager.getHandler();
 
-    // Banana obstacles
-    private final java.util.List<Banana> bananas = new ArrayList<>();
-    private long lastBananaSpawn = 0;
-    private static final long BANANA_SPAWN_INTERVAL_MS = 10_000; // 10 seconds
-    private static final int MAX_BANANAS = 4;
-
     public void suspendForwardMovement() {
         if (keyForwardActive) keyForwardActive = false;
     }
@@ -82,12 +78,12 @@ public class GameDisplay implements Display {
     // Constructor.
     public GameDisplay(Game newGame) {
         baseDisplay.clearComponents();
+        // Ensure audio assets are loaded so nitro/slip sounds are available
+        AudioManager.loadAudioFiles();
         connection.setGameDisplay(this);
         collectGameInformation(newGame);
         loadImages();
         collectPlayerControls();
-        // ensure bananas attempt to spawn immediately
-        lastBananaSpawn = System.currentTimeMillis() - BANANA_SPAWN_INTERVAL_MS;
         beginRaceCountdown();
         AudioManager.stopMusic();
         AudioManager.playSound("RACE_THEME", true);
@@ -107,6 +103,7 @@ public class GameDisplay implements Display {
         keyRight = mainPlayer.getKeyRight();
         keyForward = mainPlayer.getKeyForward();
         keyBackward = mainPlayer.getKeyBackward();
+        keyNitro = mainPlayer.getKeyNitro();
     }
 
     private void loadImages() {
@@ -148,8 +145,6 @@ public class GameDisplay implements Display {
             lastKartSendTime = now;
         }
         drawRacetrack(g);
-        // draw bananas immediately after racetrack so they are visible
-        handleBananas(g);
         updateOtherKarts(g);
         updatePlayerKart(g);
         processKeyInputs();
@@ -157,18 +152,12 @@ public class GameDisplay implements Display {
         if (isBadWeather) weather.paintIcon(baseDisplay, g, 0, 0);
 
         drawHUD(g);
-        // bananas already handled earlier
-
-        if (mainPlayerKart.isGoingWrongWay()) wrongWayMessage.paintIcon(baseDisplay, g, 0, 284);
-        if (!raceCountdownFinished) raceCountdown[raceCountdownStage].paintIcon(baseDisplay, g, 0, 0);
     }
 
     private void updateRaceCountdown() {
         if (raceCountdownStage == 2) {
             hasRaceStarted = true;
             activeGame.startGameTimer();
-            // ensure bananas spawn immediately when race starts
-            lastBananaSpawn = System.currentTimeMillis() - BANANA_SPAWN_INTERVAL_MS;
         }
         else if (raceCountdownStage + 1 == raceCountdown.length) {
             raceCountdownFinished = true;
@@ -354,6 +343,9 @@ public class GameDisplay implements Display {
             int y = (int) k.getPosition().y - 10; // above kart
             g.drawString(name, x, y);
         }
+
+        // Draw nitro bars for players
+        drawNitroBars(g);
     }
 
     public void sendPlayerToMenu() {
@@ -396,6 +388,11 @@ public class GameDisplay implements Display {
             else if (keyCode == keyForward) keyForwardActive = keyActivated;
             else if (keyCode == keyBackward) keyBackwardActive = keyActivated;
             else if (keyCode == KeyEvent.VK_SPACE) keyBrakeActive = keyActivated;
+            else if (keyCode == keyNitro) {
+                keyNitroActive = keyActivated;
+                if (keyActivated) mainPlayer.getKart().startNitro();
+                else mainPlayer.getKart().stopNitro();
+            }
         }
 
         // Open the pause menu once the player presses "Esc".
@@ -404,63 +401,31 @@ public class GameDisplay implements Display {
         }
     }
 
-    private void handleBananas(Graphics g) {
-        long now = System.currentTimeMillis();
-        if (now - lastBananaSpawn >= BANANA_SPAWN_INTERVAL_MS) {
-            lastBananaSpawn = now;
-            // spawn bananas until we have MAX_BANANAS
-            while (bananas.size() < MAX_BANANAS) {
-                Banana b = Banana.randomBanana(racetrack);
-                bananas.add(b);
-                System.out.println("[GameDisplay] Spawned banana at: " + b.getX() + "," + b.getY());
-            }
-            // If after attempts we still have zero bananas (playable area too restrictive), spawn fallback bananas at start positions
-            if (bananas.isEmpty()) {
-                System.out.println("[GameDisplay] No bananas spawned via random; creating fallback bananas at start positions.");
-                // main player's start
-                Point sp = racetrack.getStartPosition(mainPlayer.getPlayerNumber());
-                bananas.add(new Banana(racetrack, sp.x + 20, sp.y + 20));
-                // a couple of opponents if available
-                for (Player p : opponents) {
-                    if (bananas.size() >= MAX_BANANAS) break;
-                    Point op = racetrack.getStartPosition(p.getPlayerNumber());
-                    bananas.add(new Banana(racetrack, op.x + 20, op.y + 20));
-                }
-            }
-        }
+    private void drawNitroBars(Graphics g) {
+        // Draw main player nitro bar at bottom-left
+        int baseX = 10;
+        int baseY = 560;
+        int width = 120;
+        int height = 12;
+        drawNitroBarForKart(g, mainPlayer.getKart(), baseX, baseY, width, height, "You");
 
-        // Draw bananas and check collisions with karts
-        Iterator<Banana> it = bananas.iterator();
-        while (it.hasNext()) {
-            Banana b = it.next();
-            b.draw(g);
-            // check collision with main player using banana bounds
-            Kart mk = mainPlayer.getKart();
-            if (mk.getHitBox().intersects(b.getBounds().getBounds())) {
-                 // apply slip
-                 if (!mk.isSlipping()) {
-                     mk.startSlip(now, 3000);
-                     // remove banana so it disappears on contact
-                     it.remove();
-                     System.out.println("[GameDisplay] Banana touched by main player and removed at: " + b.getX() + "," + b.getY());
-                     continue; // banana gone, skip checks for other karts
-                 }
-             }
-             // check collision with other karts
-             boolean removed = false;
-             for (Player p : opponents) {
-                 Kart k = p.getKart();
-                 if (k.getHitBox().intersects(b.getBounds().getBounds())) {
-                     if (!k.isSlipping()) {
-                         k.startSlip(now, 3000);
-                         it.remove();
-                         System.out.println("[GameDisplay] Banana touched by player " + k.getKartNumber() + " and removed at: " + b.getX() + "," + b.getY());
-                         removed = true;
-                         break;
-                     }
-                 }
-             }
-             if (removed) continue;
-        }
+        // Opponent nitro bars removed so clients only see their own nitro level
+    }
+
+    private void drawNitroBarForKart(Graphics g, Kart kart, int x, int y, int w, int h, String label) {
+        float pct = kart.getNitroCapacity() / 100f;
+        if (pct < 0f) pct = 0f; if (pct > 1f) pct = 1f;
+        // background
+        g.setColor(new Color(0,0,0,160));
+        g.fillRect(x, y, w, h);
+        // fill (blue)
+        g.setColor(new Color(60,140,255));
+        g.fillRect(x+1, y+1, (int) ((w-2) * pct), h-2);
+        // border
+        g.setColor(Color.WHITE);
+        g.drawRect(x, y, w, h);
+        // label
+        g.setFont(new Font("Arial", Font.BOLD, 12));
+        g.drawString(label, x + w + 6, y + h - 1);
     }
 }
