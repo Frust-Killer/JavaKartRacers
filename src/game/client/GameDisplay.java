@@ -69,6 +69,12 @@ public class GameDisplay implements Display {
 
     private final ServerHandler connection = ServerManager.getHandler();
 
+    // Banana obstacles
+    private final java.util.List<Banana> bananas = new ArrayList<>();
+    private long lastBananaSpawn = 0;
+    private static final long BANANA_SPAWN_INTERVAL_MS = 10_000; // 10 seconds
+    private static final int MAX_BANANAS = 4;
+
     public void suspendForwardMovement() {
         if (keyForwardActive) keyForwardActive = false;
     }
@@ -80,6 +86,8 @@ public class GameDisplay implements Display {
         collectGameInformation(newGame);
         loadImages();
         collectPlayerControls();
+        // ensure bananas attempt to spawn immediately
+        lastBananaSpawn = System.currentTimeMillis() - BANANA_SPAWN_INTERVAL_MS;
         beginRaceCountdown();
         AudioManager.stopMusic();
         AudioManager.playSound("RACE_THEME", true);
@@ -140,6 +148,8 @@ public class GameDisplay implements Display {
             lastKartSendTime = now;
         }
         drawRacetrack(g);
+        // draw bananas immediately after racetrack so they are visible
+        handleBananas(g);
         updateOtherKarts(g);
         updatePlayerKart(g);
         processKeyInputs();
@@ -147,6 +157,7 @@ public class GameDisplay implements Display {
         if (isBadWeather) weather.paintIcon(baseDisplay, g, 0, 0);
 
         drawHUD(g);
+        // bananas already handled earlier
 
         if (mainPlayerKart.isGoingWrongWay()) wrongWayMessage.paintIcon(baseDisplay, g, 0, 284);
         if (!raceCountdownFinished) raceCountdown[raceCountdownStage].paintIcon(baseDisplay, g, 0, 0);
@@ -156,6 +167,8 @@ public class GameDisplay implements Display {
         if (raceCountdownStage == 2) {
             hasRaceStarted = true;
             activeGame.startGameTimer();
+            // ensure bananas spawn immediately when race starts
+            lastBananaSpawn = System.currentTimeMillis() - BANANA_SPAWN_INTERVAL_MS;
         }
         else if (raceCountdownStage + 1 == raceCountdown.length) {
             raceCountdownFinished = true;
@@ -350,6 +363,13 @@ public class GameDisplay implements Display {
     private void processKeyInputs() {
         Kart kart = mainPlayer.getKart();
 
+        // If player is slipping, block applying inputs to the kart but keep key flags intact
+        if (kart.isSlipping()) {
+            // allow brake to still function if desired
+            if (keyBrakeActive) kart.applyBrake();
+            return;
+        }
+
         if (keyRightActive) kart.updateRotation(RIGHT);
         else if (keyLeftActive) kart.updateRotation(LEFT);
 
@@ -381,6 +401,66 @@ public class GameDisplay implements Display {
         // Open the pause menu once the player presses "Esc".
         if (keyCode == KeyEvent.VK_ESCAPE) {
             baseDisplay.setCurrentDisplay(new GamePauseDisplay(activeGame, this));
+        }
+    }
+
+    private void handleBananas(Graphics g) {
+        long now = System.currentTimeMillis();
+        if (now - lastBananaSpawn >= BANANA_SPAWN_INTERVAL_MS) {
+            lastBananaSpawn = now;
+            // spawn bananas until we have MAX_BANANAS
+            while (bananas.size() < MAX_BANANAS) {
+                Banana b = Banana.randomBanana(racetrack);
+                bananas.add(b);
+                System.out.println("[GameDisplay] Spawned banana at: " + b.getX() + "," + b.getY());
+            }
+            // If after attempts we still have zero bananas (playable area too restrictive), spawn fallback bananas at start positions
+            if (bananas.isEmpty()) {
+                System.out.println("[GameDisplay] No bananas spawned via random; creating fallback bananas at start positions.");
+                // main player's start
+                Point sp = racetrack.getStartPosition(mainPlayer.getPlayerNumber());
+                bananas.add(new Banana(racetrack, sp.x + 20, sp.y + 20));
+                // a couple of opponents if available
+                for (Player p : opponents) {
+                    if (bananas.size() >= MAX_BANANAS) break;
+                    Point op = racetrack.getStartPosition(p.getPlayerNumber());
+                    bananas.add(new Banana(racetrack, op.x + 20, op.y + 20));
+                }
+            }
+        }
+
+        // Draw bananas and check collisions with karts
+        Iterator<Banana> it = bananas.iterator();
+        while (it.hasNext()) {
+            Banana b = it.next();
+            b.draw(g);
+            // check collision with main player using banana bounds
+            Kart mk = mainPlayer.getKart();
+            if (mk.getHitBox().intersects(b.getBounds().getBounds())) {
+                 // apply slip
+                 if (!mk.isSlipping()) {
+                     mk.startSlip(now, 3000);
+                     // remove banana so it disappears on contact
+                     it.remove();
+                     System.out.println("[GameDisplay] Banana touched by main player and removed at: " + b.getX() + "," + b.getY());
+                     continue; // banana gone, skip checks for other karts
+                 }
+             }
+             // check collision with other karts
+             boolean removed = false;
+             for (Player p : opponents) {
+                 Kart k = p.getKart();
+                 if (k.getHitBox().intersects(b.getBounds().getBounds())) {
+                     if (!k.isSlipping()) {
+                         k.startSlip(now, 3000);
+                         it.remove();
+                         System.out.println("[GameDisplay] Banana touched by player " + k.getKartNumber() + " and removed at: " + b.getX() + "," + b.getY());
+                         removed = true;
+                         break;
+                     }
+                 }
+             }
+             if (removed) continue;
         }
     }
 }

@@ -220,6 +220,12 @@ public class ClientHandler implements Runnable {
             float orig1 = Float.parseFloat(data[4]);
             float orig2 = Float.parseFloat(data[5]);
 
+            // Deduplicate similar collision reports arriving within a short window
+            if (!GameManager.shouldBroadcastCollision(kart1, kart2, timestamp)) {
+                System.out.println("[Server] Ignoring duplicate collision: " + kart1 + " vs " + kart2 + " at " + timestamp);
+                return;
+            }
+
             // Broadcast collision to other players in game
             broadcastCollision(kart1, kart2, timestamp, orig1, orig2);
 
@@ -414,15 +420,7 @@ public class ClientHandler implements Runnable {
             case "UPDATE_MAP_CHOICE"     -> updateChosenMap(messageData);
             case "SEND_KART_DATA"        -> processKartData(messageData);
             case "END_GAME"              -> GameManager.endGame();
-            case "RACE_WON" -> {
-                // Notifier les autres
-                GameManager.sendRaceWinnerToAllPlayers(this);
-                // PERSISTANCE : Enregistre la victoire dans MySQL
-                if (this.authenticatedUsername != null) {
-                    DatabaseManager.recordWin(this.authenticatedUsername);
-                    System.out.println("Victoire SQL : " + this.authenticatedUsername);
-                }
-            }
+            case "RACE_WON"                -> handleRaceWon();
             default -> System.err.println("Commande inconnue: " + command);
         }
     }

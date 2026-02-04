@@ -225,9 +225,26 @@ public class ServerHandler implements Runnable {
             case "SEND_OP_KART_DATA"        -> updateOpponentKartData(messageData);
             case "BROADCAST_COLLISION"      -> handleBroadcastCollision(messageData);
             case "END_GAME"                 -> endGame();
-            case "RACE_LOST"                -> activeGame.loseGame(messageData);
-            default -> throw new IllegalStateException("Unrecognised server command: " + command);
-        }
+            case "RACE_LOST"                -> {
+                // RACE_LOST <winnerNumber> <winnerNameEncoded>
+                if (activeGame != null) {
+                    activeGame.loseGame(messageData);
+                } else {
+                    try {
+                        int winnerNumber = Integer.parseInt(messageData[1]);
+                        String winnerName = "";
+                        if (messageData.length > 2) winnerName = messageData[2].replaceAll("_", " ");
+                        String reason = winnerName.isEmpty() ? "Player " + winnerNumber + " has won the game!" : "Player " + winnerName + " (" + winnerNumber + ") has won the game!";
+                        BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(2, reason));
+                    } catch (Exception e) {
+                        System.err.println("Error handling RACE_LOST without activeGame: " + e.getMessage());
+                        BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(2, "A player has won the game."));
+                    }
+                }
+            }
+             default -> throw new IllegalStateException("Unrecognised server command: " + command);
+         }
+
     }
 
     private void initiateCommunication() {

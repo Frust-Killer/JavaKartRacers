@@ -19,6 +19,10 @@ public class GameManager {
     private static boolean isBadWeather = false;
     private static boolean gameActive = false;
 
+    // Recent collision deduplication: key is "min(k1,k2)-max(k1,k2)", value is timestamp
+    private static final Map<String, Long> recentCollisions = new HashMap<>();
+    private static final long COLLISION_DEDUP_MS = 500; // ignore repeats within 500ms
+
     // Property access methods.
     public static boolean isGameActive() { return gameActive; }
     public static List<ClientHandler> getPlayersInGame() { return playersInGame; }
@@ -87,5 +91,18 @@ public class GameManager {
             isBadWeather = false;
             gameActive = false;
         }
+    }
+
+    // Deduplication helper for collisions
+    public static synchronized boolean shouldBroadcastCollision(int k1, int k2, long timestamp) {
+        int a = Math.min(k1, k2);
+        int b = Math.max(k1, k2);
+        String key = a + "-" + b;
+        Long last = recentCollisions.get(key);
+        if (last != null && Math.abs(timestamp - last) < COLLISION_DEDUP_MS) {
+            return false; // duplicate
+        }
+        recentCollisions.put(key, timestamp);
+        return true;
     }
 }

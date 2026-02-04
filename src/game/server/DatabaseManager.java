@@ -143,10 +143,16 @@ public class DatabaseManager {
     public static void recordRace(int winnerNumber) {
         String sql = "INSERT INTO races (winner_id) VALUES (?)"; // race_date defaults to CURRENT_TIMESTAMP
         try (Connection conn = getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setInt(1, winnerNumber);
             int rows = stmt.executeUpdate();
             System.out.println("[DB] recordRace(winnerNumber=" + winnerNumber + ") => rows=" + rows);
+            try (ResultSet keys = stmt.getGeneratedKeys()) {
+                if (keys.next()) {
+                    long id = keys.getLong(1);
+                    System.out.println("[DB] recordRace inserted race_id=" + id + " for winner_id=" + winnerNumber);
+                }
+            }
         } catch (SQLException e) {
             System.err.println("[DB] recordRace failed: " + e.getMessage());
             e.printStackTrace();
@@ -166,6 +172,7 @@ public class DatabaseManager {
             ResultSet rs = lookupStmt.executeQuery();
             if (rs.next()) {
                 int id = rs.getInt(1);
+                System.out.println("[DB] recordRace: found id=" + id + " for username='" + username + "'");
                 recordRace(id);
             } else {
                 System.err.println("[DB] recordRace: username not found: " + username);
@@ -176,7 +183,7 @@ public class DatabaseManager {
         }
     }
 
-    // Get player id by username, or -1 if not found
+    // Get player id by username, or -1 if found
     public static int getPlayerId(String username) {
         if (username == null || username.isEmpty()) return -1;
         String sql = "SELECT id FROM players WHERE username = ?";
@@ -206,6 +213,23 @@ public class DatabaseManager {
             return 0;
         } catch (SQLException e) {
             System.err.println("[DB] countRacesForPlayer failed: " + e.getMessage());
+            e.printStackTrace();
+            return 0;
+        }
+    }
+
+    // Count number of races recorded for a numeric player id (helper for diagnostics)
+    public static int countRacesForPlayerId(int playerId) {
+        if (playerId <= 0) return 0;
+        String sql = "SELECT COUNT(*) FROM races WHERE winner_id = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, playerId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) return rs.getInt(1);
+            return 0;
+        } catch (SQLException e) {
+            System.err.println("[DB] countRacesForPlayerId failed: " + e.getMessage());
             e.printStackTrace();
             return 0;
         }

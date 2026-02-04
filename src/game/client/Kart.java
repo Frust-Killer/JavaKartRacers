@@ -41,6 +41,7 @@ public class Kart {
     private final Racetrack racetrack;
     private final Area track;
     private boolean kartCrashed;
+    private boolean boundaryCollisionSoundPlayed = false;
     // Collision visual and slow state
     private long slowUntil = 0;
     private long flashStart = 0;
@@ -52,9 +53,17 @@ public class Kart {
     // Pending scheduled collision start (grace period)
     private long pendingCollisionStart = 0;
 
+    // Slip (banana) state
+    private long slipUntil = 0;
+    private long slipStart = 0;
+    private float slipSavedSpeed = 0f;
+    private float slipSpinRate = 8f; // degrees per update
+
     // Property access methods.
     public boolean isFlashing() { return System.currentTimeMillis() < slowUntil; }
     public long getFlashStart() { return flashStart; }
+    public boolean isSlipping() { return System.currentTimeMillis() < slipUntil; }
+    public long getSlipUntil() { return slipUntil; }
     public Player getOwner()            { return owner; }
     public float getSpeed()             { return speed; }
     public float getRotation()          { return rotation; }
@@ -122,8 +131,11 @@ public class Kart {
     }
 
     public void updatePosition() {
-        float newPositionX = position.x + getSpeedMultiplierX();
-        float newPositionY = position.y + getSpeedMultiplierY();
+        // Compute movement using direction multipliers and current speed
+        float deltaX = getDirectionMultiplierX() * speed;
+        float deltaY = getDirectionMultiplierY() * speed;
+        float newPositionX = position.x + deltaX;
+        float newPositionY = position.y + deltaY;
 
         hitBox.setLocation((int) newPositionX + HIT_BOX_BUFFER,(int) newPositionY + HIT_BOX_BUFFER);
 
@@ -138,18 +150,40 @@ public class Kart {
         // Collision detection with track boundaries.
         if (isNewPositionOnTrack()) {
             kartCrashed = false;
-            // If currently slowed due to collision, apply recovery curve based on savedOriginalSpeed
-            if (now < slowUntil) {
+            boundaryCollisionSoundPlayed = false; // reset boundary collision sound once we're back on track
+             // If currently slowed due to collision, apply recovery curve based on savedOriginalSpeed
+             if (now < slowUntil) {
                 long elapsed = now - flashStart;
                 float progress = (float) elapsed / (float) COLLISION_EFFECT_MS;
                 if (progress < 0f) progress = 0f;
                 if (progress > 1f) progress = 1f;
                 float effectiveSpeed = savedOriginalSpeed * progress;
-                position.setLocation(position.x + (getSpeedMultiplierX() * effectiveSpeed), position.y + (getSpeedMultiplierY() * effectiveSpeed));
+                // Move according to direction and effective speed (don't use current speed which is set to 0 on collision)
+                position.setLocation(position.x + (getDirectionMultiplierX() * effectiveSpeed), position.y + (getDirectionMultiplierY() * effectiveSpeed));
                 // continue without changing the stored speed directly
             } else {
                 position.setLocation(newPositionX, newPositionY);
             }
+        }
+
+        // If slipping due to banana, override rotation and movement accordingly
+        if (now < slipUntil) {
+            // spin the kart visually
+            rotation = (rotation + slipSpinRate) % TURN_CIRCLE;
+            // move according to the current (saved) speed but allow it to collide with walls
+            float slipMultiplier = 0.9f; // slightly reduced control
+            float slipDeltaX = getDirectionMultiplierX() * (slipSavedSpeed * slipMultiplier);
+            float slipDeltaY = getDirectionMultiplierY() * (slipSavedSpeed * slipMultiplier);
+            position.setLocation(position.x + slipDeltaX, position.y + slipDeltaY);
+            // Play slip sound once at start
+            if (now - slipStart < 200) {
+                AudioManager.playSound("SLIP_SOUND", false);
+            }
+        }
+
+        // Stop any collision sound effects when both effects are finished
+        if (now >= slowUntil && now >= slipUntil) {
+            AudioManager.stopSoundEffect();
         }
     }
 
@@ -158,12 +192,17 @@ public class Kart {
 
         kartCrashed = true;
         speed = -0.5f; // Bounce off the boundary.
-        AudioManager.playSound("KART_COLLISION", false);
+        // Play collision sound only once per boundary collision until we re-enter the track
+        if (!boundaryCollisionSoundPlayed) {
+            AudioManager.playSound("KART_COLLISION", false);
+            boundaryCollisionSoundPlayed = true;
+        }
         return false;
     }
 
-    private float getSpeedMultiplierX() {
-        float multiplier = switch (direction) {
+    // Direction multipliers (unit multipliers independent of speed)
+    private float getDirectionMultiplierX() {
+        return switch (direction) {
             case 2,3,4,5,6      ->  1;      // Fast movement right
             case 1,7            ->  0.5f;   // Slow movement right
             case 0,8            ->  0;      // No horizontal movement
@@ -171,11 +210,10 @@ public class Kart {
             case 10,11,12,13,14 -> -1;      // Fast movement left
             default -> 0;
         };
-        return multiplier * speed;
     }
 
-    private float getSpeedMultiplierY() {
-        float multiplier = switch (direction) {
+    private float getDirectionMultiplierY() {
+        return switch (direction) {
             case 6,7,8,9,10     ->  1;      // Fast movement down
             case 5,11           ->  0.5f;   // Slow movement down
             case 4,12           ->  0;      // No vertical movement
@@ -183,7 +221,6 @@ public class Kart {
             case 0,1,2,14,15    -> -1;      // Fast movement up
             default -> 0;
         };
-        return multiplier * speed;
     }
 
     public void updateRotation(int rotationDirection) {
@@ -224,6 +261,15 @@ public class Kart {
     public void scheduleCollision(long startTimestamp, float originalSpeed) {
         this.pendingCollisionStart = startTimestamp;
         this.savedOriginalSpeed = originalSpeed;
+    }
+
+    // Start a slip effect (banana) immediately
+    public void startSlip(long now, long durationMs) {
+        this.slipStart = now;
+        this.slipUntil = now + durationMs;
+        this.slipSavedSpeed = this.speed;
+        // optionally set a spin rate based on current speed
+        this.slipSpinRate = 6f + Math.min(10f, Math.abs(this.slipSavedSpeed) * 10f);
     }
 
     // Apply a small bounce displacement to the kart (used immediately on collision)

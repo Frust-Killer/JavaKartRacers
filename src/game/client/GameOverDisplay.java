@@ -18,6 +18,7 @@ public class GameOverDisplay implements Display {
     // Constants.
     private static final int RACE_WON = 0;
     private static final int KART_CRASHED = 1;
+    private static final int RACE_LOST = 2; // Added missing constant
 
     // Buttons.
     private JButton returnToMenuButton;
@@ -45,6 +46,35 @@ public class GameOverDisplay implements Display {
         else if (currentGame.getGameEndType() == KART_CRASHED) AudioManager.playSound("GAME_OVER", false);
     }
 
+    // Alternate constructor to show a simple end screen when a full Game object is not available
+    public GameOverDisplay(int endType, String reason) {
+        baseDisplay.clearComponents();
+        this.currentGame = null;
+        this.playersInGame = java.util.Collections.emptyList();
+        // create a minimal background image selection
+        try {
+            returnToMenu = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/buttonMainMenu.png")));
+            gameOverBackground = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/bg/gameOverBackground" + endType + ".png")));
+        } catch (Exception e) {
+            gameOverBackground = null;
+        }
+        addDisplayComponentsForReason(endType, reason);
+        AudioManager.stopMusic();
+        if (endType == RACE_WON) AudioManager.playSound("GAME_WIN", false);
+        else if (endType == KART_CRASHED) AudioManager.playSound("GAME_OVER", false);
+    }
+
+    private void addDisplayComponentsForReason(int endType, String reason) {
+        // central labels
+        baseDisplay.addLabel(reason == null ? "" : reason, 500, 25, 175, 400, Color.white, 20);
+        if (endType == RACE_WON) baseDisplay.addLabel("YOU WON!!", 400, 80, 200, 150, Color.WHITE, 48);
+        else if (endType == RACE_LOST) {
+            baseDisplay.addLabel("YOU LOST", 400, 80, 200, 140, Color.RED, 48);
+            baseDisplay.addLabel(reason == null ? "" : reason, 500, 25, 175, 220, Color.white, 20);
+        }
+        returnToMenuButton = baseDisplay.addButton(returnToMenu, 354, 500);
+    }
+
     private void loadImages() {
         try {
             returnToMenu = new ImageIcon(Objects.requireNonNull(getClass().getResource("images/ui/buttonMainMenu.png")));
@@ -63,7 +93,7 @@ public class GameOverDisplay implements Display {
         int endType = currentGame.getGameEndType();
         if (endType == RACE_WON) {
             baseDisplay.addLabel("YOU WON!!", 400, 80, 200, 150, Color.WHITE, 48);
-        } else if (endType == 2) { // RACE_LOST is defined in Game as 2
+        } else if (endType == RACE_LOST) { // use constant
             baseDisplay.addLabel("YOU LOST", 400, 80, 200, 140, Color.RED, 48);
             baseDisplay.addLabel(currentGame.getGameEndReason(), 500, 25, 175, 220, Color.white, 20);
         }
@@ -72,36 +102,43 @@ public class GameOverDisplay implements Display {
 
     @Override
     public void update(Graphics g) {
-        racetrackBackground.paintIcon(baseDisplay, g, 0, 0);
-        updatePlayerKart(g);
-        updateOtherKarts(g);
-        gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
+        // If we were constructed with a full Game, draw race background and karts.
+        if (currentGame != null) {
+            racetrackBackground.paintIcon(baseDisplay, g, 0, 0);
+            updatePlayerKart(g);
+            updateOtherKarts(g);
+            if (gameOverBackground != null) gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
 
-        // Draw overlay text depending on end type
-        int endType = currentGame.getGameEndType();
-        g.setColor(Color.WHITE);
-        if (endType == RACE_WON) {
-            g.setFont(new Font("Arial", Font.BOLD, 72));
-            g.drawString("YOU WON!!", 250, 200);
-        } else if (endType == RACE_LOST) {
-            g.setFont(new Font("Arial", Font.BOLD, 60));
-            g.setColor(Color.RED);
-            g.drawString("YOU LOST", 270, 180);
+            // Draw overlay text depending on end type
+            int endType = currentGame.getGameEndType();
             g.setColor(Color.WHITE);
-            g.setFont(new Font("Arial", Font.BOLD, 20));
-            g.drawString(currentGame.getGameEndReason(), 175, 220);
+            if (endType == RACE_WON) {
+                g.setFont(new Font("Arial", Font.BOLD, 72));
+                g.drawString("YOU WON!!", 250, 200);
+            } else if (endType == RACE_LOST) {
+                g.setFont(new Font("Arial", Font.BOLD, 60));
+                g.setColor(Color.RED);
+                g.drawString("YOU LOST", 270, 180);
+                g.setColor(Color.WHITE);
+                g.setFont(new Font("Arial", Font.BOLD, 20));
+                g.drawString(currentGame.getGameEndReason(), 175, 220);
+            }
         } else {
-            // default behavior for other end types
+            // Minimal mode: no Game present (server instructed client to display end screen)
+            if (gameOverBackground != null) gameOverBackground.paintIcon(baseDisplay, g, 0, 0);
+            // BaseDisplay labels were added in the alternate constructor, so no extra drawing is required here.
         }
     }
 
     private void updatePlayerKart(Graphics g) {
+        if (currentGame == null) return;
         Kart mainKart = currentGame.getMainPlayer().getKart();
         if (mainKart.isMoving()) mainKart.reduceSpeed();
         drawSingleKart(g, mainKart);
     }
 
     private void updateOtherKarts(Graphics g) {
+        if (playersInGame == null) return;
         for (Player player : playersInGame) {
             Kart kart = player.getKart();
             drawSingleKart(g, kart);
@@ -117,7 +154,7 @@ public class GameOverDisplay implements Display {
     @Override
     public void buttonHandler(Object button) {
         if (button == returnToMenuButton) {
-            // Close game-related operations and send the player to the menu.
+            // Close game-related operations and send the player to the lobby.
             AudioManager.stopMusic();
             currentGame = null;
             // Return player to the lobby so they can play again without re-login.
@@ -129,7 +166,8 @@ public class GameOverDisplay implements Display {
                     handler.requestLobbyData();
                 } catch (Exception ignored) {}
             }
-            baseDisplay.setCurrentDisplay(new GameJoinDisplay());
+            // Show the lobby so the player can re-enter matchmaking quickly
+            baseDisplay.setCurrentDisplay(new GameLobbyDisplay());
         }
     }
 

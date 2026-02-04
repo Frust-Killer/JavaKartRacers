@@ -98,6 +98,16 @@ public class Game {
         gameEndType = RACE_WON;
         gameEndReason = "Player " + winner.getPlayerNumber() + " has won the game!";
         ServerManager.getHandler().raceWon();
+        showLocalWin(winner);
+    }
+
+    // Show the winner screen locally without notifying the server (used when server broadcasts end)
+    public void showLocalWin(Player winner) {
+        // mark game over and show winner display without sending another RACE_WON
+        isGameOver = true;
+        gameTimer.stop();
+        gameEndType = RACE_WON;
+        gameEndReason = "Player " + winner.getPlayerNumber() + " has won the game!";
         BaseDisplay.getInstance().setCurrentDisplay(new GameOverDisplay(this));
     }
 
@@ -124,6 +134,11 @@ public class Game {
         Kart k2 = victim2.getKart();
         if (k1 == null || k2 == null) return;
 
+        // Prevent retrigger while a collision is pending or active
+        long now = System.currentTimeMillis();
+        if (k1.getPendingCollisionStart() > 0 || k2.getPendingCollisionStart() > 0) return;
+        if (now < k1.getSlowUntil() || now < k2.getSlowUntil()) return;
+
         // Compute vector from k2 -> k1
         float dx = (float) (k1.getPosition().x - k2.getPosition().x);
         float dy = (float) (k1.getPosition().y - k2.getPosition().y);
@@ -136,7 +151,9 @@ public class Game {
             if (len == 0f) { dx = 1f; len = 1f; }
         }
         // Normalize and scale bounce distance
-        float bounceDistance = 12f; // pixels to push apart
+        // Improve bounce: scale based on approach speed but cap it
+        float approach = Math.min(1.5f, Math.abs(k1.getSpeed()) + Math.abs(k2.getSpeed()));
+        float bounceDistance = 10f + approach * 10f; // base 10px + scaled
         float nx = dx / len;
         float ny = dy / len;
 
@@ -144,9 +161,8 @@ public class Game {
         k1.applyBounce(nx * bounceDistance, ny * bounceDistance);
         k2.applyBounce(-nx * bounceDistance, -ny * bounceDistance);
 
-        // Schedule slowdown/flash to start after a short delay (3 seconds)
-        long now = System.currentTimeMillis();
-        long scheduledStart = now + 3000; // 3 seconds delay
+        // Schedule slowdown/flash to start after a short delay (1 second)
+        long scheduledStart = now + 1000; // 1 second delay
         float orig1 = k1.getSpeed();
         float orig2 = k2.getSpeed();
         k1.scheduleCollision(scheduledStart, orig1);

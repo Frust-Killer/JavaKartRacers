@@ -23,6 +23,7 @@ public class AudioManager {
     private static File newLapAudioFile;
     private static File buttonAudioFile;
     private static File raceCountdown;
+    private static File slipSoundAudioFile;
 
     // Properties.
     private static boolean isMuted = false;
@@ -47,6 +48,7 @@ public class AudioManager {
         newLapAudioFile = new File("./src/game/client/audio/newLap.wav");
         buttonAudioFile = new File("./src/game/client/audio/button.wav");
         raceCountdown = new File("./src/game/client/audio/raceCountdown.wav");
+        slipSoundAudioFile = new File("./src/game/client/audio/slipSound.wav");
     }
 
     public static void playSound(String sound, boolean loop) {
@@ -67,15 +69,25 @@ public class AudioManager {
                     activeMusic.loop(Clip.LOOP_CONTINUOUSLY);
                     activeMusic.start();
                     isMusicPlaying = true;
+                    System.out.println("[Audio] Started music: " + sound);
                 }
-                else if (!loop && !isSoundEffectPlaying) {
+                else if (!loop) {
+                    // Allow interrupting existing sound effects (so SLIP_SOUND can play even if collision sound is active)
+                    if (isSoundEffectPlaying) {
+                        System.out.println("[Audio] Interrupting previous sound effect to play: " + sound);
+                        stopSoundEffect();
+                    }
                     activeSoundEffect = (Clip) AudioSystem.getLine(lineInformation);
                     activeSoundEffect.open(inputStream);
                     activeSoundEffect.addLineListener(e -> {
-                        if (e.getType().equals(LineEvent.Type.STOP)) isSoundEffectPlaying = false;
+                        if (e.getType().equals(LineEvent.Type.STOP)) {
+                            isSoundEffectPlaying = false;
+                            System.out.println("[Audio] Sound effect stopped: " + sound);
+                        }
                     });
                     activeSoundEffect.start();
                     isSoundEffectPlaying = true;
+                    System.out.println("[Audio] Playing sound effect: " + sound);
                 }
 
             } catch (LineUnavailableException | UnsupportedAudioFileException | IOException e) {
@@ -84,24 +96,34 @@ public class AudioManager {
         }
     }
 
-    public static void stopMusic() {
-        if (isMusicPlaying) {
-            activeMusic.stop();
-            isMusicPlaying = false;
+    // Stop the active non-music sound effect (if any)
+    public static void stopSoundEffect() {
+        if (isSoundEffectPlaying && activeSoundEffect != null) {
+            activeSoundEffect.stop();
+            activeSoundEffect.close();
+            isSoundEffectPlaying = false;
         }
     }
 
-    private static File getSoundFile(String type) {
-        return switch (type) {
-            case "KART_COLLISION"   -> collisionAudioFile;
-            case "RACE_COUNTDOWN"   -> raceCountdown;
-            case "BUTTON_CLICK"     -> buttonAudioFile;
-            case "MENU_THEME"       -> menuThemeAudioFile;
-            case "RACE_THEME"       -> raceThemeAudioFile;
-            case "GAME_OVER"        -> gameOverAudioFile;
-            case "GAME_WIN"         -> gameWinAudioFile;
-            case "NEW_LAP"          -> newLapAudioFile;
-            default -> throw new IllegalStateException("Could not find file for sound " + type);
-        };
-    }
-}
+     public static void stopMusic() {
+         if (isMusicPlaying) {
+             activeMusic.stop();
+             isMusicPlaying = false;
+         }
+     }
+
+     private static File getSoundFile(String type) {
+         return switch (type) {
+             case "KART_COLLISION"   -> collisionAudioFile;
+             case "RACE_COUNTDOWN"   -> raceCountdown;
+             case "BUTTON_CLICK"     -> buttonAudioFile;
+             case "MENU_THEME"       -> menuThemeAudioFile;
+             case "RACE_THEME"       -> raceThemeAudioFile;
+             case "GAME_OVER"        -> gameOverAudioFile;
+             case "GAME_WIN"         -> gameWinAudioFile;
+             case "NEW_LAP"          -> newLapAudioFile;
+             case "SLIP_SOUND"       -> slipSoundAudioFile;
+             default -> throw new IllegalStateException("Could not find file for sound " + type);
+         };
+     }
+ }
