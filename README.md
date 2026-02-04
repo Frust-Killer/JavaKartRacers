@@ -281,21 +281,31 @@ Paste short server log excerpts that correlate to actions. Example fragments you
 ```
 
 Suggested screenshots filenames:
-- docs/screenshots/menu.png
-- docs/screenshots/lobby.png
-- docs/screenshots/findGame.png
-- docs/screenshots/race_nitro_after.png
-- docs/screenshots/gamepause.png
-- docs/screenshots/race_nitro_before.png
-- docs/screenshots/gameover.png
+- <img width="1058" height="855" alt="menu" src="https://github.com/user-attachments/assets/14c2b8bc-a1e1-42e6-8130-380027318122" />
+
+- <img width="1067" height="855" alt="lobby" src="https://github.com/user-attachments/assets/77050937-c444-4d23-9fd6-941fa9076c4d" />
+
+- <img width="1061" height="848" alt="findGame" src="https://github.com/user-attachments/assets/f9604743-4191-4788-9475-82ae2202f9e7" />
+
+- <img width="1055" height="841" alt="race_nitro_after" src="https://github.com/user-attachments/assets/bff66555-e429-41da-8412-35555e9d4209" />
+
+- <img width="1060" height="843" alt="gamepause" src="https://github.com/user-attachments/assets/2f042ca8-8409-489e-b152-629d44c3c3ea" />
+
+- <img width="1059" height="849" alt="race_nitro_before" src="https://github.com/user-attachments/assets/7035a2ca-3c6f-48c8-b69c-267e72289668" />
+
+- <img width="1053" height="847" alt="gameover" src="https://github.com/user-attachments/assets/d19762c7-2613-46d9-bdc3-b30a85579d5e" />
+
 
 Sample logs
 -----------
-- docs/screenshots/data.png
-- docs/screenshots/serverlog.png
-- docs/screenshots/clientlog.png
+- <img width="1346" height="784" alt="data" src="https://github.com/user-attachments/assets/c4906039-84f6-41d8-85b8-2cf5e02196ab" />
 
-- docs/screenshots/race_nitro_before.png
+- <img width="1346" height="784" alt="data" src="https://github.com/user-attachments/assets/72bb413c-f41c-497e-a9bd-40fa1ad0f9aa" />
+
+- <img width="1896" height="822" alt="image" src="https://github.com/user-attachments/assets/d99ad1d9-ed33-482a-b817-cf0f98365511" />
+
+
+  
 Troubleshooting & known issues
 -----------------------------
 - If audio fails, make sure WAV files are present and that your JDK supports the format; switching to classpath loading is recommended before packaging.
