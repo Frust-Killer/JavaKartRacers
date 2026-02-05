@@ -1,4 +1,4 @@
-JavaKartRacers — Project Report
+JavaKartRacers — README!!
 ===============================
 
 Author: Team JavaKartRacers (FRU, FAVOUR, HAPPI, KAPETE, KIMBI)
@@ -283,7 +283,8 @@ Paste short server log excerpts that correlate to actions. Example fragments you
 Suggested screenshots filenames:
 - <img width="1058" height="855" alt="menu" src="https://github.com/user-attachments/assets/14c2b8bc-a1e1-42e6-8130-380027318122" />
 
-- <img width="1067" height="855" alt="lobby" src="https://github.com/user-attachments/assets/77050937-c444-4d23-9fd6-941fa9076c4d" />
+- <img width="1053" height="842" alt="Screenshot 2026-02-04 162933" src="https://github.com/user-attachments/assets/d66ac689-1468-43a7-b352-95581ed4db52" />
+
 
 - <img width="1061" height="848" alt="findGame" src="https://github.com/user-attachments/assets/f9604743-4191-4788-9475-82ae2202f9e7" />
 
@@ -301,6 +302,8 @@ Sample logs
 - <img width="1346" height="784" alt="data" src="https://github.com/user-attachments/assets/c4906039-84f6-41d8-85b8-2cf5e02196ab" />
 
 - <img width="1346" height="784" alt="data" src="https://github.com/user-attachments/assets/72bb413c-f41c-497e-a9bd-40fa1ad0f9aa" />
+
+- <img width="1121" height="850" alt="serverlog" src="https://github.com/user-attachments/assets/e97fc2c4-c457-4f08-8dcf-e1fa17cbce5f" />
 
 - <img width="1896" height="822" alt="image" src="https://github.com/user-attachments/assets/d99ad1d9-ed33-482a-b817-cf0f98365511" />
 
